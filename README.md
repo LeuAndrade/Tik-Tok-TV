@@ -64,7 +64,21 @@ Para gerar APKs específicos por ABI em builds dedicados (ex.: Fire TV Stick Lit
 
 ---
 
-## 4. Instalação Manual (Sideload) em Fire TV Stick e Android TV
+## 4. Geração Automática de APK via GitHub Actions
+
+O workflow **`.github/workflows/build-apk.yml`** executa os testes (`gradle :app:testDebugUnitTest`) e gera o APK universal (`armeabi-v7a` + `arm64-v8a`) diretamente no GitHub:
+
+1. Envie o projeto para o seu repositório no GitHub (branch `main` ou `master`), ou abra a aba **Actions → Build TikTok TV APK → Run workflow**.
+2. Ao finalizar a execução, baixe o APK em **Artifacts** (`tiktok-tv-universal-debug-apk`).
+3. Para gerar **Releases públicas automáticas** com o APK anexado, envie uma tag de versão (ex.: `git tag v1.0.0 && git push origin v1.0.0`).
+4. *(Opcional)* Para gerar também o **APK Release assinado** e embutir suas chaves públicas no CI, configure em **Settings → Secrets and variables → Actions**:
+   - `ANDROID_KEYSTORE_BASE64`: arquivo `.jks` codificado em Base64 (`base64 -w 0 my-upload-key.jks`), com alias `upload`.
+   - `STORE_PASSWORD` e `KEY_PASSWORD`: senhas do keystore.
+   - `TIKTOK_CLIENT_KEY` e `TIKTOK_AUTH_BACKEND_URL`: caso utilize o Login Kit v2 em produção.
+
+---
+
+## 5. Instalação Manual (Sideload) em Fire TV Stick e Android TV
 
 1. Ative **Opções de desenvolvedor / Apps de fontes desconhecidas** na TV ou Fire TV Stick.
 2. Envie o APK via `adb install -r app-debug.apk` ou aplicativo Downloader / gerenciador de arquivos na TV.
