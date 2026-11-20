@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.performance.PerformanceProfile
+import com.example.player.DecoderMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -21,10 +22,10 @@ data class TvSettingsState(
   val blurredAmbientBackground: Boolean = false,
   val fullscreenHorizontal: Boolean = true,
   val autoQuality: Boolean = true,
+  val decoderMode: DecoderMode = DecoderMode.AUTOMATIC,
   val performanceProfile: PerformanceProfile = PerformanceProfile.BALANCED,
   val hasInitializedProfile: Boolean = false,
-  val cacheLimitMb: Int = 64,
-  val virtualPointerSensitivity: Float = 1.0f,
+  val cacheLimitMb: Int = 48,
   val scrollSpeedMultiplier: Float = 1.0f,
   val confirmBeforeExit: Boolean = true,
   val textScale: Float = 1.0f,
@@ -39,10 +40,10 @@ class TvSettingsRepository(private val context: Context) {
     val BLURRED_AMBIENT = booleanPreferencesKey("blurred_ambient")
     val FULLSCREEN_HORIZONTAL = booleanPreferencesKey("fullscreen_horizontal")
     val AUTO_QUALITY = booleanPreferencesKey("auto_quality")
+    val DECODER_MODE = stringPreferencesKey("decoder_mode")
     val PERFORMANCE_PROFILE = stringPreferencesKey("performance_profile")
     val HAS_INITIALIZED_PROFILE = booleanPreferencesKey("has_initialized_profile")
     val CACHE_LIMIT_MB = intPreferencesKey("cache_limit_mb")
-    val POINTER_SENSITIVITY = floatPreferencesKey("pointer_sensitivity")
     val SCROLL_SPEED = floatPreferencesKey("scroll_speed")
     val CONFIRM_EXIT = booleanPreferencesKey("confirm_exit")
     val TEXT_SCALE = floatPreferencesKey("text_scale")
@@ -55,6 +56,10 @@ class TvSettingsRepository(private val context: Context) {
       val profile =
         PerformanceProfile.entries.firstOrNull { it.name == profileName }
           ?: PerformanceProfile.BALANCED
+      val decoderName = prefs[Keys.DECODER_MODE]
+      val decoderMode =
+        DecoderMode.entries.firstOrNull { it.name == decoderName }
+          ?: DecoderMode.AUTOMATIC
       val historyRaw = prefs[Keys.SEARCH_HISTORY].orEmpty()
       val history =
         if (historyRaw.isBlank()) emptyList()
@@ -66,10 +71,10 @@ class TvSettingsRepository(private val context: Context) {
         blurredAmbientBackground = prefs[Keys.BLURRED_AMBIENT] ?: false,
         fullscreenHorizontal = prefs[Keys.FULLSCREEN_HORIZONTAL] ?: true,
         autoQuality = prefs[Keys.AUTO_QUALITY] ?: true,
+        decoderMode = decoderMode,
         performanceProfile = profile,
         hasInitializedProfile = prefs[Keys.HAS_INITIALIZED_PROFILE] ?: false,
-        cacheLimitMb = prefs[Keys.CACHE_LIMIT_MB] ?: profile.maxWebCacheMb,
-        virtualPointerSensitivity = prefs[Keys.POINTER_SENSITIVITY] ?: 1.0f,
+        cacheLimitMb = prefs[Keys.CACHE_LIMIT_MB] ?: profile.maxMediaCacheMb,
         scrollSpeedMultiplier = prefs[Keys.SCROLL_SPEED] ?: 1.0f,
         confirmBeforeExit = prefs[Keys.CONFIRM_EXIT] ?: true,
         textScale = prefs[Keys.TEXT_SCALE] ?: 1.0f,
@@ -82,7 +87,7 @@ class TvSettingsRepository(private val context: Context) {
       if (prefs[Keys.HAS_INITIALIZED_PROFILE] != true) {
         prefs[Keys.PERFORMANCE_PROFILE] = recommended.name
         prefs[Keys.BLURRED_AMBIENT] = recommended.enableBlurEffects
-        prefs[Keys.CACHE_LIMIT_MB] = recommended.maxWebCacheMb
+        prefs[Keys.CACHE_LIMIT_MB] = recommended.maxMediaCacheMb
         prefs[Keys.HAS_INITIALIZED_PROFILE] = true
       }
     }
@@ -92,8 +97,14 @@ class TvSettingsRepository(private val context: Context) {
     context.tvSettingsDataStore.edit { prefs ->
       prefs[Keys.PERFORMANCE_PROFILE] = profile.name
       prefs[Keys.BLURRED_AMBIENT] = profile.enableBlurEffects
-      prefs[Keys.CACHE_LIMIT_MB] = profile.maxWebCacheMb
+      prefs[Keys.CACHE_LIMIT_MB] = profile.maxMediaCacheMb
       prefs[Keys.HAS_INITIALIZED_PROFILE] = true
+    }
+  }
+
+  suspend fun setDecoderMode(mode: DecoderMode) {
+    context.tvSettingsDataStore.edit { prefs ->
+      prefs[Keys.DECODER_MODE] = mode.name
     }
   }
 
@@ -120,13 +131,11 @@ class TvSettingsRepository(private val context: Context) {
   }
 
   suspend fun updateNavigationSetting(
-    pointerSensitivity: Float? = null,
     scrollSpeed: Float? = null,
     confirmBeforeExit: Boolean? = null,
     textScale: Float? = null,
   ) {
     context.tvSettingsDataStore.edit { prefs ->
-      pointerSensitivity?.let { prefs[Keys.POINTER_SENSITIVITY] = it.coerceIn(0.5f, 2.5f) }
       scrollSpeed?.let { prefs[Keys.SCROLL_SPEED] = it.coerceIn(0.5f, 2.0f) }
       confirmBeforeExit?.let { prefs[Keys.CONFIRM_EXIT] = it }
       textScale?.let { prefs[Keys.TEXT_SCALE] = it.coerceIn(0.85f, 1.3f) }

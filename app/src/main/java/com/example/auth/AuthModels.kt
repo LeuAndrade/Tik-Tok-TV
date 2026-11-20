@@ -23,6 +23,9 @@ data class TikTokTokenBundle(
     val expiresAt = obtainedAtEpochMs + (refreshExpiresInSeconds * 1000L)
     return nowMs >= expiresAt
   }
+
+  fun hasScope(targetScope: String): Boolean =
+    scope.split(",", " ").map { it.trim() }.any { it.equals(targetScope, ignoreCase = true) }
 }
 
 @JsonClass(generateAdapter = true)
@@ -58,7 +61,13 @@ data class TikTokDisplayVideo(
   @Json(name = "comment_count") val commentCount: Long = 0L,
   @Json(name = "share_count") val shareCount: Long = 0L,
   @Json(name = "view_count") val viewCount: Long = 0L,
-)
+) {
+  val isHorizontal: Boolean
+    get() = width > 0 && height > 0 && width >= height
+
+  val bestShareUrl: String
+    get() = shareUrl.ifBlank { embedLink }
+}
 
 sealed interface QrAuthorizationState {
   data object Idle : QrAuthorizationState
@@ -79,19 +88,13 @@ sealed interface QrAuthorizationState {
   data class Error(val message: String, val isConfigurationMissing: Boolean = false) : QrAuthorizationState
 }
 
-enum class WebSessionStatus(val label: String) {
-  UNKNOWN("Verificando sessão web"),
-  GUEST("Sessão pública (sem login web)"),
-  AUTHENTICATED("Sessão web TikTok ativa"),
-  SECURITY_CHALLENGE("Verificação de segurança solicitada pelo TikTok"),
-}
-
-data class CombinedAuthState(
+data class NativeAuthState(
   val oauthConnected: Boolean = false,
   val oauthTokenExpiresAtMs: Long? = null,
   val oauthScopes: String = "",
   val userProfile: TikTokUserProfile? = null,
-  val webSessionStatus: WebSessionStatus = WebSessionStatus.UNKNOWN,
-  val webHandle: String? = null,
   val authErrorMessage: String? = null,
-)
+) {
+  fun hasScope(scope: String): Boolean =
+    oauthScopes.split(",", " ").map { it.trim() }.any { it.equals(scope, ignoreCase = true) }
+}

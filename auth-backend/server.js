@@ -45,7 +45,7 @@ app.post('/api/tiktok/qr/start', async (req, res) => {
 
   const clientTicket = String(req.body?.client_ticket || '').trim() || crypto.randomBytes(8).toString('hex');
   const state = String(req.body?.state || '').trim() || crypto.randomBytes(12).toString('hex');
-  const scope = String(req.body?.scope || 'user.info.basic,user.info.profile,user.info.stats,video.list');
+  const scope = String(req.body?.scope || '').trim() || 'user.info.basic,user.info.profile,user.info.stats,video.list';
 
   try {
     const body = new URLSearchParams({

@@ -5,66 +5,45 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.auth.LoginScreen
 import com.example.comments.CommentsSidePanel
+import com.example.feed.FeedScreen
+import com.example.feed.VideoActionsSideBar
+import com.example.feed.VideoContextMenuOverlay
+import com.example.live.LiveScreen
 import com.example.messaging.InboxScreen
 import com.example.navigation.ActiveOverlay
-import com.example.navigation.FeedDpadCallbacks
-import com.example.navigation.FeedDpadFocusHost
 import com.example.navigation.TvDestination
 import com.example.navigation.TvNavigationDrawerOverlay
-import com.example.navigation.handleVirtualPointerKeyEvent
 import com.example.profile.ProfileAndFavoritesScreen
 import com.example.search.SearchScreen
 import com.example.settings.SettingsScreen
+import com.example.sharing.PublishVideoScreen
+import com.example.sharing.ShareVideoOverlay
 import com.example.ui.components.TvConfirmExitOverlay
-import com.example.ui.components.TvFocusableButton
 import com.example.ui.theme.TikTokCyan
-import com.example.ui.theme.TikTokPink
+import com.example.ui.theme.TikTokTvTheme
 import com.example.ui.theme.TvBlack
 import com.example.ui.theme.TvSurfaceOverlay
 import com.example.ui.theme.TvTextPrimary
-import com.example.ui.theme.TvTextSecondary
-import com.example.ui.theme.TikTokTvTheme
-import com.example.web.ShareVideoOverlay
-import com.example.web.TikTokWebViewSurface
-import com.example.web.VideoActionsSideBar
-import com.example.web.VideoContextMenuOverlay
 import kotlinx.coroutines.delay
 
 @Composable
@@ -74,9 +53,8 @@ fun TikTokTvApp(
 ) {
   val uiState by viewModel.uiState.collectAsStateWithLifecycle()
   val settings by viewModel.settingsState.collectAsStateWithLifecycle()
-  val authState by viewModel.combinedAuthState.collectAsStateWithLifecycle()
+  val authState by viewModel.nativeAuthState.collectAsStateWithLifecycle()
   val qrState by viewModel.qrState.collectAsStateWithLifecycle()
-  val metadata by viewModel.videoMetadata.collectAsStateWithLifecycle()
   val memorySnapshot by viewModel.memorySnapshot.collectAsStateWithLifecycle()
   val diagnostics by viewModel.diagnostics.collectAsStateWithLifecycle()
 
@@ -93,30 +71,45 @@ fun TikTokTvApp(
         Modifier
           .fillMaxSize()
           .background(TvBlack)
-          .windowInsetsPadding(WindowInsets.safeDrawing)
-          .onPreviewKeyEvent { keyEvent ->
-            if (uiState.virtualPointerActive && uiState.activeOverlay == ActiveOverlay.NONE) {
-              handleVirtualPointerKeyEvent(
-                keyEvent = keyEvent,
-                onMoveVirtualPointer = viewModel::moveVirtualPointer,
-                onClickVirtualPointer = viewModel::clickVirtualPointer,
-                onDisableVirtualPointer = viewModel::toggleVirtualPointer,
-              )
-            } else {
-              false
-            }
-          },
+          .windowInsetsPadding(WindowInsets.safeDrawing),
     ) {
       when (uiState.currentDestination) {
+        TvDestination.HOME,
         TvDestination.FOR_YOU,
         TvDestination.FOLLOWING,
-        TvDestination.LIVES -> {
-          FeedPlayerStage(
+        TvDestination.EXPLORE -> {
+          FeedScreen(
             destination = uiState.currentDestination,
-            viewModel = viewModel,
-            uiState = uiState,
+            authState = authState,
+            displayVideos = uiState.displayVideos,
+            activeVideo = uiState.activeVideo,
+            activeVideoIndex = uiState.activeVideoIndex,
+            isPaused = uiState.isPlayerPaused,
+            isMuted = uiState.isPlayerMuted,
+            isLoadingVideos = uiState.isLoadingDisplayVideos,
+            videosError = uiState.displayVideosError,
+            activeOverlay = uiState.activeOverlay,
             settings = settings,
-            metadata = metadata,
+            memoryMonitor = viewModel.memoryMonitor,
+            onOpenMenu = { viewModel.openOverlay(ActiveOverlay.NAVIGATION_MENU) },
+            onOpenVideoActions = { viewModel.openOverlay(ActiveOverlay.ACTION_BAR) },
+            onOpenContextMenu = { viewModel.openOverlay(ActiveOverlay.CONTEXT_MENU) },
+            onStepVideo = viewModel::stepVideo,
+            onTogglePlayPause = viewModel::togglePlayPause,
+            onSelectDisplayVideo = viewModel::selectDisplayVideo,
+            onRefreshDisplayApi = viewModel::refreshAuthorizedProfileAndVideos,
+            onOpenLogin = { viewModel.navigateTo(TvDestination.LOGIN) },
+            onOpenPublish = { viewModel.navigateTo(TvDestination.PUBLISH) },
+            onOpenProfile = { viewModel.navigateTo(TvDestination.PROFILE) },
+            onOpenShare = { viewModel.openOverlay(ActiveOverlay.SHARE_PANEL) },
+            onPlayerError = viewModel::showStatusBanner,
+          )
+        }
+        TvDestination.LIVES -> {
+          LiveScreen(
+            onOpenMenu = { viewModel.openOverlay(ActiveOverlay.NAVIGATION_MENU) },
+            onOpenHome = { viewModel.navigateTo(TvDestination.HOME) },
+            onOpenLogin = { viewModel.navigateTo(TvDestination.LOGIN) },
           )
         }
         TvDestination.SEARCH -> {
@@ -124,28 +117,21 @@ fun TikTokTvApp(
             initialQuery = uiState.searchQuery,
             selectedCategory = uiState.searchCategory,
             searchHistory = settings.searchHistory,
-            webController = viewModel.webController,
-            performanceProfile = settings.performanceProfile,
-            virtualPointerActive = uiState.virtualPointerActive,
-            pointerX = uiState.pointerX,
-            pointerY = uiState.pointerY,
+            authState = authState,
+            results = uiState.searchResults,
+            isSearching = uiState.isSearching,
+            searchError = uiState.searchError,
             onExecuteSearch = viewModel::executeSearch,
+            onSelectVideo = viewModel::selectDisplayVideo,
             onClearHistory = viewModel::clearSearchHistory,
             onOpenMenu = { viewModel.openOverlay(ActiveOverlay.NAVIGATION_MENU) },
-            onToggleVirtualPointer = viewModel::toggleVirtualPointer,
+            onOpenLogin = { viewModel.navigateTo(TvDestination.LOGIN) },
           )
         }
         TvDestination.INBOX -> {
           InboxScreen(
-            webSessionStatus = authState.webSessionStatus,
-            webController = viewModel.webController,
-            performanceProfile = settings.performanceProfile,
-            virtualPointerActive = uiState.virtualPointerActive,
-            pointerX = uiState.pointerX,
-            pointerY = uiState.pointerY,
             onOpenMenu = { viewModel.openOverlay(ActiveOverlay.NAVIGATION_MENU) },
-            onOpenLogin = viewModel::openTikTokDirectLogin,
-            onToggleVirtualPointer = viewModel::toggleVirtualPointer,
+            onOpenHome = { viewModel.navigateTo(TvDestination.HOME) },
           )
         }
         TvDestination.FAVORITES,
@@ -156,16 +142,25 @@ fun TikTokTvApp(
             displayVideos = uiState.displayVideos,
             isLoadingVideos = uiState.isLoadingDisplayVideos,
             videosError = uiState.displayVideosError,
-            webController = viewModel.webController,
-            performanceProfile = settings.performanceProfile,
-            virtualPointerActive = uiState.virtualPointerActive,
-            pointerX = uiState.pointerX,
-            pointerY = uiState.pointerY,
             onOpenMenu = { viewModel.openOverlay(ActiveOverlay.NAVIGATION_MENU) },
-            onOpenLogin = viewModel::openTikTokDirectLogin,
+            onOpenLogin = { viewModel.navigateTo(TvDestination.LOGIN) },
             onRefreshDisplayApi = viewModel::refreshAuthorizedProfileAndVideos,
-            onSelectDisplayVideo = viewModel::openDisplayVideo,
-            onToggleVirtualPointer = viewModel::toggleVirtualPointer,
+            onSelectDisplayVideo = viewModel::selectDisplayVideo,
+          )
+        }
+        TvDestination.PUBLISH -> {
+          PublishVideoScreen(
+            authState = authState,
+            creatorInfo = uiState.creatorInfo,
+            publishState = uiState.publishState,
+            selectedLocalUri = uiState.selectedPublishUri,
+            settings = settings,
+            memoryMonitor = viewModel.memoryMonitor,
+            onSelectLocalUri = viewModel::selectLocalPublishUri,
+            onLoadCreatorInfo = viewModel::loadCreatorInfo,
+            onPublishVideo = viewModel::publishLocalVideo,
+            onOpenMenu = { viewModel.openOverlay(ActiveOverlay.NAVIGATION_MENU) },
+            onOpenLogin = { viewModel.navigateTo(TvDestination.LOGIN) },
           )
         }
         TvDestination.SETTINGS -> {
@@ -174,14 +169,16 @@ fun TikTokTvApp(
             authState = authState,
             capabilities = viewModel.deviceCapabilities,
             memorySnapshot = memorySnapshot,
+            mediaCacheUsageMb = uiState.mediaCacheUsageLabel,
             diagnostics = diagnostics,
             onOpenMenu = { viewModel.openOverlay(ActiveOverlay.NAVIGATION_MENU) },
             onUpdatePlayback = viewModel::updatePlaybackSetting,
+            onSelectDecoderMode = viewModel::setDecoderMode,
             onSelectProfile = viewModel::setPerformanceProfile,
             onUpdateCacheLimit = viewModel::updateCacheLimitMb,
-            onClearCache = viewModel::clearWebAndImageCaches,
+            onClearCache = viewModel::clearAllCaches,
             onUpdateNavigation = viewModel::updateNavigationSetting,
-            onOpenLogin = viewModel::openTikTokDirectLogin,
+            onOpenLogin = { viewModel.navigateTo(TvDestination.LOGIN) },
             onLogoutAndWipe = viewModel::logoutAndWipeLocalData,
           )
         }
@@ -189,82 +186,68 @@ fun TikTokTvApp(
           LoginScreen(
             authState = authState,
             qrState = qrState,
-            webController = viewModel.webController,
-            performanceProfile = settings.performanceProfile,
             onStartOAuthQr = viewModel::startOAuthQrAuthorization,
             onCancelOAuthQr = viewModel::cancelOAuthQrAuthorization,
-            onLoadWebLogin = { viewModel.webController.loadUrl("https://www.tiktok.com/login") },
-            onLoadWebQrLogin = viewModel::loadTikTokWebQrLogin,
-            onExploreFeed = { viewModel.navigateTo(TvDestination.FOR_YOU) },
-            onToggleVirtualPointer = viewModel::toggleVirtualPointer,
-            virtualPointerActive = uiState.virtualPointerActive,
-            pointerX = uiState.pointerX,
-            pointerY = uiState.pointerY,
+            onExploreApp = { viewModel.navigateTo(TvDestination.HOME) },
           )
         }
       }
 
-      // Auto-hiding Collapsible Navigation Drawer
+      // Auto-hiding Collapsible Native Navigation Drawer
       TvNavigationDrawerOverlay(
         visible = uiState.activeOverlay == ActiveOverlay.NAVIGATION_MENU,
         currentDestination = uiState.currentDestination,
         authState = authState,
         onSelectDestination = viewModel::navigateTo,
-        onOpenLogin = viewModel::openTikTokDirectLogin,
+        onOpenLogin = { viewModel.navigateTo(TvDestination.LOGIN) },
         onDismiss = viewModel::closeOverlay,
       )
 
       // Video Actions Panel (DPAD_RIGHT)
       VideoActionsSideBar(
         visible = uiState.activeOverlay == ActiveOverlay.ACTION_BAR,
-        metadata = metadata,
-        virtualPointerActive = uiState.virtualPointerActive,
-        onLike = { viewModel.performWebVideoAction("like") },
+        video = uiState.activeVideo,
+        isPaused = uiState.isPlayerPaused,
+        isMuted = uiState.isPlayerMuted,
+        onPreviousVideo = { viewModel.stepVideo(-1) },
+        onNextVideo = { viewModel.stepVideo(1) },
+        onTogglePlayPause = viewModel::togglePlayPause,
         onOpenComments = viewModel::openCommentsPanel,
-        onRepost = { viewModel.performWebVideoAction("repost") },
-        onFavorite = { viewModel.performWebVideoAction("favorite") },
         onOpenShare = { viewModel.openOverlay(ActiveOverlay.SHARE_PANEL) },
-        onOpenCreatorProfile = { viewModel.openCreatorProfile(metadata.authorHandle) },
-        onToggleFollow = { viewModel.performWebVideoAction("follow") },
+        onOpenCreatorProfile = { viewModel.navigateTo(TvDestination.PROFILE) },
         onToggleMute = viewModel::toggleMute,
-        onToggleVirtualPointer = viewModel::toggleVirtualPointer,
+        onBlockedSocialAction = viewModel::notifyBlockedSocialAction,
         onDismiss = viewModel::closeOverlay,
       )
 
-      // Comments Side Panel (video stays playing on left)
+      // Comments Side Panel
       CommentsSidePanel(
         visible = uiState.activeOverlay == ActiveOverlay.COMMENTS_PANEL,
-        metadata = metadata,
-        webSessionStatus = authState.webSessionStatus,
-        onSubmitComment = viewModel::submitComment,
-        onOpenWebLogin = viewModel::openTikTokDirectLogin,
+        video = uiState.activeVideo,
+        onOpenShareQr = { viewModel.openOverlay(ActiveOverlay.SHARE_PANEL) },
         onDismiss = viewModel::closeOverlay,
       )
 
       // Share & Send-to-Phone QR Overlay
       ShareVideoOverlay(
         visible = uiState.activeOverlay == ActiveOverlay.SHARE_PANEL,
-        videoUrl = metadata.videoUrl,
+        videoTitle = uiState.activeVideo?.title.orEmpty(),
+        videoUrl = uiState.activeVideo?.bestShareUrl ?: "https://www.tiktok.com",
         onCopyLink = viewModel::copyShareLinkToClipboard,
-        onShareInTikTokInbox = { viewModel.navigateTo(TvDestination.INBOX) },
         onDismiss = viewModel::closeOverlay,
       )
 
-      // Context Menu Overlay (Long Press OK)
+      // Context Menu Overlay (Long Press OK / Menu)
       VideoContextMenuOverlay(
         visible = uiState.activeOverlay == ActiveOverlay.CONTEXT_MENU,
-        metadata = metadata,
+        video = uiState.activeVideo,
         blurredAmbientEnabled = settings.blurredAmbientBackground,
-        virtualPointerActive = uiState.virtualPointerActive,
         onPlayPause = viewModel::togglePlayPause,
         onToggleAmbient = {
           viewModel.updatePlaybackSetting(blurredAmbient = !settings.blurredAmbientBackground)
         },
-        onToggleVirtualPointer = viewModel::toggleVirtualPointer,
-        onCopyLink = { viewModel.copyShareLinkToClipboard(metadata.videoUrl) },
-        onReportContent = {
-          viewModel.closeOverlay()
-          viewModel.webController.loadUrl("https://www.tiktok.com/report")
+        onCopyLink = {
+          viewModel.copyShareLinkToClipboard(uiState.activeVideo?.bestShareUrl ?: "https://www.tiktok.com")
         },
         onOpenSettings = { viewModel.navigateTo(TvDestination.SETTINGS) },
         onDismiss = viewModel::closeOverlay,
@@ -283,7 +266,7 @@ fun TikTokTvApp(
         visible = !uiState.statusBannerMessage.isNullOrBlank(),
         enter = fadeIn(),
         exit = fadeOut(),
-        modifier = Alignment.TopCenter.let { Modifier.align(it).padding(top = 18.dp) },
+        modifier = Modifier.align(Alignment.TopCenter).padding(top = 18.dp),
       ) {
         Box(
           modifier =
@@ -302,215 +285,5 @@ fun TikTokTvApp(
         }
       }
     }
-  }
-}
-
-@Composable
-private fun FeedPlayerStage(
-  destination: TvDestination,
-  viewModel: TikTokTvViewModel,
-  uiState: TikTokTvUiState,
-  settings: com.example.settings.TvSettingsState,
-  metadata: com.example.web.ActiveVideoMetadata,
-) {
-  val feedFocusRequester = remember { FocusRequester() }
-  val menuButtonFocusRequester = remember { FocusRequester() }
-  val actionsButtonFocusRequester = remember { FocusRequester() }
-  val isOverlayOpen = uiState.activeOverlay != ActiveOverlay.NONE
-
-  val feedDpadCallbacks =
-    remember(viewModel) {
-      object : FeedDpadCallbacks {
-        override fun onPreviousVideo() {
-          viewModel.stepVideo(-1)
-        }
-
-        override fun onNextVideo() {
-          viewModel.stepVideo(1)
-        }
-
-        override fun onTogglePlayPause() {
-          viewModel.togglePlayPause()
-        }
-
-        override fun onOpenNavigationDrawer() {
-          viewModel.openOverlay(ActiveOverlay.NAVIGATION_MENU)
-        }
-
-        override fun onOpenVideoActions() {
-          viewModel.openOverlay(ActiveOverlay.ACTION_BAR)
-        }
-
-        override fun onOpenContextMenu() {
-          viewModel.openOverlay(ActiveOverlay.CONTEXT_MENU)
-        }
-      }
-    }
-
-  FeedDpadFocusHost(
-    focusRequester = feedFocusRequester,
-    isOverlayOpen = isOverlayOpen,
-    virtualPointerActive = uiState.virtualPointerActive,
-    focusTriggerKey = destination,
-    menuButtonFocusRequester = menuButtonFocusRequester,
-    actionsButtonFocusRequester = actionsButtonFocusRequester,
-    onMoveVirtualPointer = viewModel::moveVirtualPointer,
-    onClickVirtualPointer = viewModel::clickVirtualPointer,
-    onDisableVirtualPointer = viewModel::toggleVirtualPointer,
-    callbacks = feedDpadCallbacks,
-  ) { _ ->
-    Box(modifier = Modifier.fillMaxSize().testTag("feed_stage")) {
-      // Optional ambient cyan/pink edge glow for vertical videos when enabled & not Economic mode
-      if (settings.blurredAmbientBackground && !metadata.isHorizontal) {
-        Box(
-          modifier =
-            Modifier
-              .fillMaxSize()
-              .background(
-                Brush.horizontalGradient(
-                  listOf(
-                    TikTokCyan.copy(alpha = 0.08f),
-                    Color.Black,
-                    Color.Black,
-                    TikTokPink.copy(alpha = 0.08f),
-                  ),
-                ),
-              ),
-        )
-      }
-
-      TikTokWebViewSurface(
-        controller = viewModel.webController,
-        initialUrl = destination.webUrl,
-        performanceProfile = settings.performanceProfile,
-        autoplay = settings.autoplay,
-        virtualPointerActive = uiState.virtualPointerActive,
-        pointerNormalizedX = uiState.pointerX,
-        pointerNormalizedY = uiState.pointerY,
-        onFullscreenViewChange = {},
-        allowWebViewFocus = uiState.virtualPointerActive,
-        modifier = Modifier.fillMaxSize(),
-      )
-
-      if (viewModel.webController.isLoading) {
-        LinearProgressIndicator(
-          color = TikTokCyan,
-          trackColor = Color.Transparent,
-          modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter),
-        )
-      }
-
-      // Discreet HUD bar only when overlays are closed, leaving maximum 16:9 playback area
-      if (uiState.activeOverlay == ActiveOverlay.NONE) {
-        Row(
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.SpaceBetween,
-          modifier =
-            Modifier
-              .fillMaxWidth()
-              .align(Alignment.TopCenter)
-              .padding(horizontal = 20.dp, vertical = 14.dp),
-        ) {
-          TvFocusableButton(
-            text = destination.title,
-            icon = Icons.Default.Menu,
-            onClick = { viewModel.openOverlay(ActiveOverlay.NAVIGATION_MENU) },
-            modifier =
-              Modifier
-                .focusRequester(menuButtonFocusRequester)
-                .focusProperties {
-                  down = feedFocusRequester
-                  right = actionsButtonFocusRequester
-                },
-            testTag = "feed_open_menu_button",
-          )
-
-          Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-          ) {
-            Box(
-              modifier =
-                Modifier
-                  .clip(RoundedCornerShape(10.dp))
-                  .background(TvSurfaceOverlay)
-                  .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-              Text(
-                text = "▲▼ Vídeo • OK Pausa • ◀ Menu • ▶ Ações • Segure OK Opções",
-                color = TvTextSecondary,
-                style = MaterialTheme.typography.labelSmall,
-              )
-            }
-            TvFocusableButton(
-              text = "Ações",
-              icon = Icons.Default.MoreHoriz,
-              onClick = { viewModel.openOverlay(ActiveOverlay.ACTION_BAR) },
-              modifier =
-                Modifier
-                  .focusRequester(actionsButtonFocusRequester)
-                  .focusProperties {
-                    down = feedFocusRequester
-                    left = menuButtonFocusRequester
-                  },
-              testTag = "feed_open_actions_button",
-            )
-          }
-        }
-
-      if (metadata.authorHandle.isNotBlank() || metadata.description.isNotBlank()) {
-        Column(
-          modifier =
-            Modifier
-              .align(Alignment.BottomStart)
-              .padding(start = 24.dp, bottom = 22.dp, end = 220.dp)
-              .clip(RoundedCornerShape(12.dp))
-              .background(TvSurfaceOverlay.copy(alpha = 0.72f))
-              .padding(horizontal = 14.dp, vertical = 10.dp),
-        ) {
-          if (metadata.authorHandle.isNotBlank()) {
-            Text(
-              text = metadata.authorHandle,
-              color = TikTokCyan,
-              style = MaterialTheme.typography.titleMedium,
-            )
-          }
-          if (metadata.description.isNotBlank()) {
-            Text(
-              text = metadata.description,
-              color = TvTextPrimary,
-              style = MaterialTheme.typography.bodyMedium,
-              maxLines = 2,
-            )
-          }
-        }
-      }
-    }
-
-    val webErr = viewModel.webController.lastWebError
-    if (!webErr.isNullOrBlank()) {
-      Box(
-        contentAlignment = Alignment.Center,
-        modifier =
-          Modifier
-            .align(Alignment.Center)
-            .clip(RoundedCornerShape(16.dp))
-            .background(TvSurfaceOverlay)
-            .border(1.dp, TikTokPink, RoundedCornerShape(16.dp))
-            .padding(24.dp),
-      ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-          Text(text = webErr, color = TvTextPrimary, style = MaterialTheme.typography.bodyLarge)
-          Spacer(modifier = Modifier.width(4.dp))
-          TvFocusableButton(
-            text = "Tentar novamente",
-            isPrimary = true,
-            onClick = { viewModel.webController.reload() },
-            testTag = "web_error_retry_button",
-          )
-        }
-      }
-    }
-  }
   }
 }

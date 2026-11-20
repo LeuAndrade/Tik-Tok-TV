@@ -3,17 +3,19 @@ package com.example.navigation
 enum class TvDestination(
   val title: String,
   val group: String,
-  val webUrl: String,
 ) {
-  FOR_YOU("Para Você", "Início", "https://www.tiktok.com/foryou"),
-  FOLLOWING("Seguindo", "Início", "https://www.tiktok.com/following"),
-  LIVES("Lives", "Início", "https://www.tiktok.com/live"),
-  SEARCH("Pesquisar", "Descobrir", "https://www.tiktok.com/search"),
-  INBOX("Caixa de entrada", "Comunicação", "https://www.tiktok.com/messages"),
-  FAVORITES("Favoritos", "Biblioteca", "https://www.tiktok.com/profile"),
-  PROFILE("Perfil", "Conta", "https://www.tiktok.com/profile"),
-  SETTINGS("Configurações", "Sistema", "https://www.tiktok.com"),
-  LOGIN("Entrar", "Conta", "https://www.tiktok.com/login"),
+  HOME("Início", "Descobrir"),
+  FOR_YOU("Para Você", "Feed"),
+  FOLLOWING("Seguindo", "Feed"),
+  EXPLORE("Explorar", "Descobrir"),
+  SEARCH("Pesquisar", "Descobrir"),
+  LIVES("Lives", "Feed"),
+  INBOX("Caixa de entrada", "Social"),
+  FAVORITES("Favoritos", "Biblioteca"),
+  PROFILE("Perfil", "Conta"),
+  PUBLISH("Publicar vídeo", "Criar"),
+  SETTINGS("Configurações", "Sistema"),
+  LOGIN("Entrar", "Conta"),
 }
 
 enum class ActiveOverlay {
@@ -26,17 +28,16 @@ enum class ActiveOverlay {
   EXIT_CONFIRM,
 }
 
-enum class SearchCategory(val label: String, val pathSegment: String) {
-  ALL("Todos", "search"),
-  VIDEOS("Vídeos", "search/video"),
-  USERS("Usuários", "search/user"),
-  HASHTAGS("Hashtags", "tag"),
-  SOUNDS("Sons", "search"),
-  LIVES("Lives", "search/live"),
+enum class SearchCategory(val label: String) {
+  VIDEO_IDS("Meus vídeos (IDs Display API)"),
+  ALL("Pesquisa global (Research API)"),
+  VIDEOS("Vídeos"),
+  USERS("Usuários"),
+  HASHTAGS("Hashtags"),
+  SOUNDS("Sons"),
 }
 
 enum class LoginMethodTab(val label: String) {
+  QR_CODE("Entrar usando QR Code"),
   TIKTOK_DIRECT("Entrar com TikTok"),
-  QR_WEB("QR Code da TV (Web)"),
-  QR_OAUTH_API("QR Code Login Kit (API)"),
 }

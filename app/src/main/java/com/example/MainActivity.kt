@@ -7,6 +7,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import coil.annotation.ExperimentalCoilApi
+import coil.imageLoader
+import com.example.player.VideoCacheManager
 
 class MainActivity : ComponentActivity() {
 
@@ -30,23 +33,17 @@ class MainActivity : ComponentActivity() {
     }
   }
 
-  override fun onPause() {
-    viewModel.webController.pauseMediaForBackground()
-    super.onPause()
-  }
-
-  override fun onResume() {
-    super.onResume()
-    viewModel.webController.resumeMedia()
-    viewModel.webSessionManager.refreshSessionStatus()
-  }
-
+  @OptIn(ExperimentalCoilApi::class)
   override fun onTrimMemory(level: Int) {
     super.onTrimMemory(level)
     if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
-      viewModel.webController.clearCache(includeDisk = false)
+      runCatching { imageLoader.memoryCache?.clear() }
+      if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+        VideoCacheManager.clearCache(applicationContext)
+      }
       viewModel.memoryMonitor.recordDiagnostic("Memória", "Limpeza automática de cache por pressão de RAM (nível $level).")
       viewModel.memoryMonitor.refreshMemorySnapshot()
+      viewModel.refreshMediaCacheLabel()
     }
   }
 }

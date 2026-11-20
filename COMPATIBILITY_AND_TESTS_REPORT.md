@@ -1,64 +1,73 @@
-# Relatório de Compatibilidade, Limitações e Testes — TikTok TV
+# Relatório de Arquitetura Nativa, APIs TikTok, Limitações e Testes — TikTok Native TV
 
-## 1. Compatibilidade de Plataformas e Arquiteturas
+## 1. Conformidade com a Regra Absoluta (100% Nativo)
 
-| Plataforma / Dispositivo | Suporte no Projeto | Observações Técnicas |
-|---|---|---|
-| **Android TV / Google TV** | Compatível (`LEANBACK_LAUNCHER`) | Interface Compose 16:9 com foco D-pad, banner `320x180`, `touchscreen required="false"`. |
-| **Amazon Fire TV Stick Lite / HD (1 GB RAM)** | Compatível (`armeabi-v7a`, perfil **Econômico**) | Detecta automaticamente RAM <= 1536 MB / `isLowRamDevice`, desativa animações pesadas, usa WebView única e limita cache. |
-| **Amazon Fire TV Stick 4K / 4K Max / Fire TV Cube** | Compatível (`armeabi-v7a` / `arm64-v8a`) | Suporta reprodução Full HD/4K via aceleração de hardware e MediaCodec. |
-| **Dependência de Google Play Services** | **Zero** | Autenticação usa Login Kit v2 (`auth-backend` + TikTok Web) e ZXing/WebView nativas, sem exigir GMS. |
-| **Telas sensíveis ao toque** | **Não exigido** | Todos os fluxos operam por D-pad, teclado virtual da TV e Ponteiro Virtual D-pad como fallback. |
+Uma auditoria direta no código-fonte (`/app/src/main`) confirma **zero ocorrências** de `WebView`, `android.webkit`, `CookieManager`, `evaluateJavascript`, `CustomTabs` ou `TrustedWebActivity`.
+Todas as telas são construídas em **Kotlin + Jetpack Compose for TV**, a reprodução usa **Media3 / ExoPlayer + MediaCodec**, e toda comunicação remota ocorre via **HTTPS/JSON (Retrofit, OkHttp, Moshi)** e cache estruturado **Room + DataStore + Android Keystore**.
 
 ---
 
-## 2. Matriz Transparente de Funcionalidades (API Oficial vs Sessão Web Oficial)
+## 2. Estudo e Classificação Oficial das APIs do TikTok
 
-| Funcionalidade | Mecanismo Utilizado | Limitações Conhecidas da Plataforma TikTok |
-|---|---|---|
-| **Login Direto ("Entrar com TikTok")** | TikTok Web oficial (`https://www.tiktok.com/login`) em WebView protegida | Suporta e-mail, telefone, usuário, provedores externos, captcha e 2FA sem capturar senhas. |
-| **Login por QR Code (Web)** | TikTok Web QR (`https://www.tiktok.com/login/qrcode`) | Concede sessão web real completa (cookies persistidos via `CookieManager`). |
-| **Login por QR Code (Login Kit v2 API)** | `auth-backend` -> `POST /v2/oauth/get_qrcode/`, `POST /v2/oauth/check_qrcode/`, `POST /v2/oauth/token/` | Requer hospedagem do `auth-backend` com `TIKTOK_CLIENT_KEY` e `TIKTOK_CLIENT_SECRET`. Concede tokens OAuth para Display API v2 (não gera cookies web automaticamente). |
-| **Feed Para Você, Seguindo e Lives** | Sessão web oficial do TikTok (`tiktok.com/foryou`, `/following`, `/live`) | A Display API v2 oficial não fornece endpoint público de feed personalizado "Para Você" ou descoberta de Lives; por isso o app utiliza a experiência web oficial autenticada. |
-| **Curtir, Republicar, Salvar, Seguir, Comentar** | `TikTokWebBridge` acionando os controles reais do DOM autenticado + confirmação real | Requer sessão web autenticada no TikTok. Caso o TikTok altere seletores DOM ou exija verificação de segurança/login, o app informa o usuário sem simular sucesso e oferece o Ponteiro Virtual D-pad. |
-| **Pesquisa (Vídeos, Usuários, Hashtags, Sons, Lives)** | TikTok Web Search + histórico local opcional em DataStore | Os resultados são exclusivamente os retornados pelo TikTok real; o histórico local pode ser limpo a qualquer momento. |
-| **Caixa de Entrada (Mensagens & Notificações)** | TikTok Web Messages / Notifications (`tiktok.com/messages`, `/notifications`) | Respeita regras de privacidade, idade, disponibilidade regional e login web do TikTok. APIs de portabilidade não permitem envio de DMs. |
-| **Perfil & Vídeos do Usuário** | Display API v2 (`GET /v2/user/info/`, `POST /v2/video/list/`) + Perfil Web por abas | Display API v2 exibe apenas vídeos públicos da conta autorizada pelos escopos aprovados. |
-| **Compartilhar / Enviar ao Celular** | ZXing QR Code local + `ClipboardManager` + `Intent.ACTION_SEND` | Gera QR Code com a URL legítima `https://www.tiktok.com/...` sem servidores intermediários. |
+| Funcionalidade | Endpoint / SDK Oficial Analisado | Status neste App | Restrição / Comportamento Real |
+|---|---|---|---|
+| **Login por QR Code na TV** | Login Kit QR v2 (`/v2/oauth/get_qrcode/`, `/check_qrcode/`, `/token/`, `/revoke/`) | **Implementado e funcional** | Fluxo 100% nativo para TV sem navegador. O usuário escaneia com o TikTok do celular e o `auth-backend` troca e renova os tokens com segurança. |
+| **Login Direto pelo SDK Android** | TikTok Open SDK Android (`AuthApi`) | **Bloqueado na TV** | O `AuthApi` móvel depende do app TikTok instalado no celular ou Chrome Custom Tabs. Incompatível com Android TV/Fire TV sem navegador; a aba orienta e redireciona com 1 clique para o Login por QR Code. |
+| **Perfil e Métricas Reais** | Display API v2 (`GET /v2/user/info/`) | **Implementado e funcional** | Exibe nome, `@username`, foto via Coil, selo verificado, biografia, seguidores, seguindo, curtidas e total de vídeos, com persistência offline no Room. |
+| **Vídeos da Conta Autorizada** | Display API v2 (`POST /v2/video/list/`, `/v2/video/query/`) | **Implementado com transparência** | Lista vídeos reais da conta e consulta por IDs exatos. **Observação técnica da API:** a Display API v2 retorna `embed_link` (HTML) e `share_url`, **não** URLs diretas MP4/HLS. Sem WebView, o app exibe capa, métricas reais e QR Code "Abrir no celular". |
+| **Publicação e Pré-visualização de Vídeos** | Content Posting API v2 (`/creator_info/query/`, `/video/init/`, `/inbox/video/init/`, `/status/fetch/`) | **Implementado e funcional** | Seleção via `PickVisualMedia` (zero permissão ampla de armazenamento), pré-visualização nativa no **Media3 ExoPlayer**, upload em chunks `PUT` para rascunho ou postagem direta e confirmação oficial por polling. |
+| **Feed Para Você / Seguindo / Explorar** | Sem API pública de terceiros | **Bloqueado pela plataforma** | O TikTok não fornece API autorizada para recomendações personalizadas "Para Você", feed "Seguindo" ou URLs diretas de streaming MP4/HLS desse feed sem WebView. Não simulamos feed falso. |
+| **Lives e Streams ao Vivo** | Sem API pública de descoberta ou stream | **Bloqueado pela plataforma** | Não há endpoint autorizado para listar transmissões ao vivo ou entregar streams HLS/FLV brutos em clientes nativos de TV. |
+| **Curtir, Republicar e Favoritos (Escrita)** | Sem escopo público de escrita | **Bloqueado pela plataforma** | A Display API v2 retorna contadores reais de leitura, mas proíbe mutações de curtir/favoritar/republicar por terceiros. |
+| **Comentários (Lista textual e Escrita)** | Research API (restrita) / Sem escrita pública | **Leitura restrita / Escrita bloqueada** | A Display API v2 exibe o contador real `comment_count`; leitura de textos via Research API exige vínculo acadêmico não comercial (EUA/EEE/RU/CA/CH) e não existe API pública para postar comentários. |
+| **Pesquisa Global** | Research API (restrita) / `video/query` | **Parcial (IDs próprios)** | Pesquisa comercial global é bloqueada pela plataforma; o app suporta consulta real por IDs numéricos da conta via `/v2/video/query/` e filtro local no cache Room. |
+| **Chat e Mensagens Privadas (DMs)** | Data Portability API (exportação DMA EEE/RU) | **Bloqueado pela plataforma** | Não existe API interativa de DMs ou envio de mensagens; a Data Portability API limita-se a exportação assíncrona no EEE/Reino Unido. |
 
 ---
 
-## 3. Relatório de Testes Executados
+## 3. Compatibilidade de Hardware e Desempenho
 
-### Testes Automatizados Executados Neste Ambiente
+| Plataforma / Dispositivo | Suporte no Projeto | Otimizações Nativas Implementadas |
+|---|---|---|
+| **Android TV / Google TV** | `LEANBACK_LAUNCHER`, D-pad 100% | `FocusRequester`, `focusProperties`, banner `320x180`, ícone adaptativo. |
+| **Amazon Fire TV Stick Lite / HD (1 GB RAM)** | `armeabi-v7a`, Perfil **Econômico** | Detecta RAM <= 1536 MB / `isLowRamDevice`, desativa animações/blur, limita buffers ExoPlayer (`1500-5000ms`) e cache `SimpleCache` (24 MB). |
+| **Fire TV Stick 4K / 4K Max / Android TV 64-bit** | `arm64-v8a` / `armeabi-v7a` | Detecção de codecs MediaCodec (`H.264`, `H.265/HEVC`, `VP9`, `AV1`) e modos de decodificação (`Automático`, `Hardware padrão`, `Baixa latência`). |
+| **Google Play Policy** | Totalmente aderente | Seleção de vídeo usa `ActivityResultContracts.PickVisualMedia` (zero `READ_MEDIA_VIDEO` / `READ_EXTERNAL_STORAGE`). |
 
-1. **Suíte Android (Robolectric SDK 36 + Compose UI Test + JUnit4) — `gradle :app:testDebugUnitTest`**
-   - **Resultado:** **APROVADO (`BUILD SUCCESSFUL`, 18 testes executados, 0 falhas)**
-   - `AuthRepositoryAndQrTest`:
-     - Geração de bitmap QR Code válido para URL TikTok via ZXing.
-     - Máquina de estados QR Code v2 (`WaitingScan` -> `ScannedPendingConfirm` -> `Confirmed`), busca de perfil (`Display API v2`), listagem de vídeos e exclusão total no logout.
-     - Rotação automática de `access_token` expirado via `refresh_token`.
-   - `PerformanceAndWebSecurityTest`:
-     - Seleção automática do perfil `ECONOMIC` para Fire TV Stick de 1 GB RAM (`isLowRamDevice = true`), `BALANCED` para 2 GB e `QUALITY` para 4 GB+.
-     - Política HTTPS estrita na WebView (aceita domínios oficiais TikTok e provedores OAuth confiáveis; bloqueia `http://`, `javascript:` e domínios de phishing).
-     - Detecção segura de cookies de sessão web e redação de tokens/segredos nos logs de diagnóstico.
-     - Mapeamento contextual do controle remoto TV (`DPAD_UP`/`DOWN`, `OK`, `Segurar OK`, `BACK`, isolamento dentro de Comentários e movimento do Ponteiro Virtual).
-     - Amostragem de memória RAM/Heap pelo `MemoryMonitor`.
-   - `TvRemoteAndUiTest` (executado em viewport Android TV `1280x720dp tvdpi`):
-     - Navegação D-pad por foco em Compose (`FeedDpadFocusHost` com `FocusRequester`, `Modifier.onKeyEvent` e `Modifier.onPreviewKeyEvent`): foco inicial no feed, troca de vídeo (`Up`/`Down`), Play/Pause (`Center`), abertura de gaveta/ações/menu contextual (`Left`/`Right`/`Menu`), detecção de `FLAG_LONG_PRESS` no OK sem disparar pausa ao soltar, transferência automática de foco para overlays e restauração do foco para o feed ao fechar.
-     - Modo Ponteiro Virtual interceptando direcionais via `onPreviewKeyEvent` sem trocar vídeo do feed.
-     - Renderização completa do menu lateral `TvNavigationDrawerOverlay` e navegação para `Configurações`.
-     - Renderização do painel lateral de comentários (`CommentsSidePanel`) com comentários reais e campo de digitação.
-     - Renderização do painel de compartilhamento (`ShareVideoOverlay`) com QR Code "Enviar ao celular" e cópia de link.
-     - Renderização da tela de `Configurações` com perfis Fire TV e seleção de perfil de desempenho.
-   - `ExampleRobolectricTest` & `ExampleUnitTest`: verificam recurso `app_name = "TikTok TV"` e execução JVM.
+---
 
-2. **Suíte Node.js do Backend (`node --test auth-backend/server.test.js`)**
-   - **Resultado:** **APROVADO (1/1)**
-   - Verifica exposição dos endpoints `/v2/oauth/get_qrcode/`, `/v2/oauth/check_qrcode/`, `/v2/oauth/token/`, `/v2/oauth/revoke/`, substituição de `client_ticket=tobefilled` e ausência de `client_secret` hardcoded.
+## 4. Relatório de Testes Executados (Verificados após a edição final)
 
-### Testes Que Não Puderam Ser Executados Neste Ambiente (Registrados Explicitamente)
+### A. Suíte Android (`gradle :app:testDebugUnitTest` — Robolectric SDK 36 + Compose UI Test + JUnit4)
+**Resultado:** **APROVADO (`BUILD SUCCESSFUL`, 21 testes executados, 0 falhas, 0 erros, 0 ignorados)**
 
-Devido à ausência de emulador Android TV / ADB / dispositivo físico Fire TV Stick neste ambiente de compilação em servidor:
-- **Não executados automaticamente:** testes manuais interativos em streaming de vídeo real no `tiktok.com` autenticado com conta real do usuário (reprodução prolongada 4K, captura de FPS em GPU real, leitura de comentários reais ao vivo, envio real de curtida/comentário/republicação/DM, autenticação 2FA presencial em Fire TV Stick Lite/4K).
-- **Observação sobre APK Release assinado:** a tarefa `assembleDebug` e a compilação completa foram validadas; para `assembleRelease` em produção, configure as variáveis de ambiente `KEYSTORE_PATH`, `STORE_PASSWORD` e `KEY_PASSWORD` conforme `app/build.gradle.kts`.
+1. **`AuthRepositoryAndQrTest` (3 testes):**
+   - Geração de QR Code ZXing para URLs oficiais do TikTok.
+   - Fluxo completo de estado Login Kit QR v2 (`WaitingScan` -> `ScannedPendingConfirm` -> `Confirmed`), consulta a `GET /v2/user/info/` e `POST /v2/video/list/`, e limpeza no logout.
+   - Rotação automática de `access_token` expirado utilizando `refresh_token`.
+2. **`PerformanceAndNativeMediaTest` (6 testes):**
+   - Seleção automática de `PerformanceProfile.ECONOMIC` (1 GB RAM), `BALANCED` (2 GB) e `QUALITY` (4 GB+).
+   - `MediaSourceValidator`: rejeição estrita de `embed_link`, `/video/` HTML e `http://`; aceitação de `content://`, `file://`, `.mp4` e `.m3u8` para `ExoPlayer`.
+   - `TikTokShareUtils.sanitizeShareUrl`: aceita apenas domínios oficiais HTTPS do TikTok e neutraliza esquemas inseguros.
+   - `MemoryMonitor`: redação automática de tokens e segredos em logs de diagnóstico.
+   - `TikTokPlatformCapabilities` & `DecoderMode`: validação da matriz oficial e dos 3 modos de decodificação.
+   - `TikTokTokenBundle.hasScope`: validação de escopos separados por vírgula ou espaço.
+3. **`TvRemoteAndUiTest` (10 testes em viewport TV `1280x720dp tvdpi`):**
+   - Renderização do menu lateral nativo `TvNavigationDrawerOverlay` com todos os destinos (`Início`, `Para Você`, `Seguindo`, `Explorar`, `Pesquisar`, `Lives`, `Caixa de entrada`, `Favoritos`, `Perfil`, `Publicar vídeo`, `Configurações`).
+   - Tela `LoginScreen` com opção principal `Entrar usando QR Code` e painel transparente sobre restrição do SDK móvel na TV.
+   - Painel lateral `CommentsSidePanel` exibindo contador real e atalho para QR Code.
+   - Painel `ShareVideoOverlay` com QR Code e cópia de link.
+   - Telas nativas `InboxScreen` e `SearchScreen` (sem WebView) e disparo de consulta.
+   - `SettingsScreen` com seleção de `DecoderMode` (`Baixa latência`), perfil `Equilibrado` e informações de hardware.
+   - `FeedDpadFocusHost`: foco inicial, roteamento de teclas D-pad (`Down`, `Up`, `Center`, `Left`, `Right`, `Menu`), transferência de foco para overlays, restauração ao fechar e detecção de `FLAG_LONG_PRESS` no OK sem disparar Play/Pause ao soltar.
+4. **`ExampleRobolectricTest` (1 teste) & `ExampleUnitTest` (1 teste):**
+   - Validam `app_name = "TikTok Native TV"` e execução JVM.
+
+### B. Suíte Node.js do Backend OAuth (`node --test auth-backend/server.test.js`)
+**Resultado:** **APROVADO (1/1)**
+
+### C. Build do APK (`compile_applet` e `gradle :app:assembleDebug`)
+**Resultado:** **APROVADO (`BUILD SUCCESSFUL`, APK debug universal gerado em `app/build/outputs/apk/debug/`)**
+
+### D. Testes Não Executados Neste Ambiente
+- Testes interativos em aparelho físico (Amazon Fire TV Stick / Google TV real), streaming prolongado com MediaCodec real em GPU de hardware e fluxo end-to-end com credenciais reais de produção do TikTok Developer Portal não puderam ser executados devido à ausência de emulador Android TV / ADB neste ambiente servidor.

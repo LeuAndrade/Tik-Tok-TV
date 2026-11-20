@@ -6,23 +6,22 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -38,9 +37,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.example.auth.CombinedAuthState
+import com.example.auth.NativeAuthState
 import com.example.auth.TikTokDisplayVideo
-import com.example.performance.PerformanceProfile
 import com.example.ui.components.TvFocusableButton
 import com.example.ui.components.TvFocusableTile
 import com.example.ui.components.TvInfoBanner
@@ -51,26 +49,18 @@ import com.example.ui.theme.TvSurface
 import com.example.ui.theme.TvSurfaceElevated
 import com.example.ui.theme.TvTextPrimary
 import com.example.ui.theme.TvTextSecondary
-import com.example.web.TikTokWebController
-import com.example.web.TikTokWebViewSurface
 
 @Composable
 fun ProfileAndFavoritesScreen(
   initialShowFavoritesFocus: Boolean,
-  authState: CombinedAuthState,
+  authState: NativeAuthState,
   displayVideos: List<TikTokDisplayVideo>,
   isLoadingVideos: Boolean,
   videosError: String?,
-  webController: TikTokWebController,
-  performanceProfile: PerformanceProfile,
-  virtualPointerActive: Boolean,
-  pointerX: Float,
-  pointerY: Float,
   onOpenMenu: () -> Unit,
   onOpenLogin: () -> Unit,
   onRefreshDisplayApi: () -> Unit,
   onSelectDisplayVideo: (TikTokDisplayVideo) -> Unit,
-  onToggleVirtualPointer: () -> Unit,
 ) {
   var selectedTab by remember(initialShowFavoritesFocus) {
     mutableIntStateOf(if (initialShowFavoritesFocus) 1 else 0)
@@ -85,7 +75,7 @@ fun ProfileAndFavoritesScreen(
         .padding(20.dp)
         .testTag("profile_screen"),
   ) {
-    // Header with real Display API v2 summary + Navigation tabs
+    // Header with real Display API v2 profile
     Row(
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -107,7 +97,7 @@ fun ProfileAndFavoritesScreen(
       if (profile != null && profile.avatarUrl.isNotBlank()) {
         AsyncImage(
           model = profile.avatarUrl,
-          contentDescription = "Foto de perfil",
+          contentDescription = "Foto de perfil oficial",
           modifier = Modifier.size(56.dp).clip(CircleShape),
         )
       } else {
@@ -124,21 +114,40 @@ fun ProfileAndFavoritesScreen(
       }
 
       Column(modifier = Modifier.weight(1f)) {
-        Text(
-          text = profile?.displayName?.ifBlank { "Perfil TikTok" } ?: "Perfil & Favoritos TikTok",
-          color = TvTextPrimary,
-          style = MaterialTheme.typography.titleLarge,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+          Text(
+            text = profile?.displayName?.ifBlank { "Perfil TikTok" } ?: "Perfil & Biblioteca Nativa",
+            color = TvTextPrimary,
+            style = MaterialTheme.typography.titleLarge,
+          )
+          if (profile?.isVerified == true) {
+            Icon(
+              imageVector = Icons.Default.Verified,
+              contentDescription = "Conta verificada",
+              tint = TikTokCyan,
+              modifier = Modifier.size(18.dp),
+            )
+          }
+        }
+
         if (profile != null) {
           Text(
             text =
-              "@${profile.username.ifBlank { profile.openId.take(10) }} • ${profile.followerCount} seguidores • ${profile.followingCount} seguindo • ${profile.likesCount} curtidas",
+              "@${profile.username.ifBlank { profile.openId.take(10) }} • ${profile.followerCount} seguidores • ${profile.followingCount} seguindo • ${profile.likesCount} curtidas • ${profile.videoCount} vídeos",
             color = TikTokCyan,
             style = MaterialTheme.typography.bodyMedium,
           )
+          if (profile.bioDescription.isNotBlank()) {
+            Text(
+              text = profile.bioDescription,
+              color = TvTextSecondary,
+              style = MaterialTheme.typography.bodyMedium,
+              maxLines = 2,
+            )
+          }
         } else {
           Text(
-            text = authState.webSessionStatus.label,
+            text = "Conecte sua conta OAuth Login Kit QR v2 para sincronizar seu perfil real.",
             color = TvTextSecondary,
             style = MaterialTheme.typography.bodyMedium,
           )
@@ -146,35 +155,21 @@ fun ProfileAndFavoritesScreen(
       }
 
       TvFocusableButton(
-        text = "Perfil Web",
+        text = "Publicações (${displayVideos.size})",
         isSelected = selectedTab == 0,
-        onClick = {
-          selectedTab = 0
-          webController.loadUrl("https://www.tiktok.com/profile")
-        },
-        testTag = "profile_tab_web",
-      )
-
-      TvFocusableButton(
-        text = "Vídeos API (${displayVideos.size})",
-        isSelected = selectedTab == 1,
-        onClick = {
-          selectedTab = 1
-          onRefreshDisplayApi()
-        },
+        onClick = { selectedTab = 0 },
         testTag = "profile_tab_api_videos",
       )
 
       TvFocusableButton(
-        text = if (virtualPointerActive) "Ponteiro ON" else "Ponteiro",
-        isSelected = virtualPointerActive,
-        onClick = onToggleVirtualPointer,
-        testTag = "profile_pointer_button",
+        text = "Favoritos / Curtidos",
+        isSelected = selectedTab == 1,
+        onClick = { selectedTab = 1 },
+        testTag = "profile_tab_favorites_restricted",
       )
     }
 
-    if (selectedTab == 1) {
-      // Official Display API v2 User Video List
+    if (selectedTab == 0) {
       Column(
         verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier =
@@ -183,6 +178,7 @@ fun ProfileAndFavoritesScreen(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(TvSurface)
+            .border(1.dp, TikTokCyan.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
             .padding(20.dp),
       ) {
         Row(
@@ -191,7 +187,7 @@ fun ProfileAndFavoritesScreen(
           modifier = Modifier.fillMaxWidth(),
         ) {
           Text(
-            text = "Vídeos publicados (TikTok Display API v2)",
+            text = "Vídeos publicados (GET /v2/user/info/ + POST /v2/video/list/)",
             color = TvTextPrimary,
             style = MaterialTheme.typography.titleLarge,
           )
@@ -203,20 +199,21 @@ fun ProfileAndFavoritesScreen(
           )
         }
 
-        if (!authState.oauthConnected) {
+        if (!authState.oauthConnected && displayVideos.isEmpty()) {
           TvInfoBanner(
-            message = "Conecte via 'QR Code Login Kit v2' para listar seus vídeos oficiais pela Display API, ou use a aba 'Perfil Web' para ver publicações, republicações, favoritos e curtidas.",
+            message = "Entre usando QR Code Login Kit v2 para listar seus vídeos oficiais da conta e mantê-los disponíveis no cache Room.",
             accentColor = TikTokPink,
           )
           TvFocusableButton(
-            text = "Conectar Login Kit / QR Code",
+            text = "Conectar via QR Code",
+            icon = Icons.Default.QrCode2,
             isPrimary = true,
             onClick = onOpenLogin,
             testTag = "profile_open_login_button",
           )
         } else if (isLoadingVideos) {
           CircularProgressIndicator(color = TikTokCyan)
-        } else if (!videosError.isNullOrBlank()) {
+        } else if (!videosError.isNullOrBlank() && displayVideos.isEmpty()) {
           TvInfoBanner(
             message = "Não foi possível carregar via Display API: $videosError",
             accentColor = TikTokPink,
@@ -245,26 +242,41 @@ fun ProfileAndFavoritesScreen(
         }
       }
     } else {
-      // Official TikTok Web Profile (supports Publicações, Republicações, Favoritos, Curtidas, Seguir/Deixar de seguir)
-      Box(
+      Column(
+        verticalArrangement = Arrangement.spacedBy(14.dp),
         modifier =
           Modifier
             .weight(1f)
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(TvSurface)
-            .border(1.dp, TikTokCyan.copy(alpha = 0.25f), RoundedCornerShape(16.dp)),
+            .border(1.dp, TikTokPink.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+            .padding(24.dp),
       ) {
-        TikTokWebViewSurface(
-          controller = webController,
-          initialUrl = "https://www.tiktok.com/profile",
-          performanceProfile = performanceProfile,
-          autoplay = true,
-          virtualPointerActive = virtualPointerActive,
-          pointerNormalizedX = pointerX,
-          pointerNormalizedY = pointerY,
-          onFullscreenViewChange = {},
-          modifier = Modifier.fillMaxSize(),
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+          Icon(
+            imageVector = Icons.Default.Bookmark,
+            contentDescription = null,
+            tint = TikTokPink,
+            modifier = Modifier.size(30.dp),
+          )
+          Text(
+            text = "Favoritos, Republicações e Curtidos indisponíveis na API pública",
+            color = TikTokPink,
+            style = MaterialTheme.typography.titleLarge,
+          )
+        }
+        Text(
+          text =
+            "A Display API v2 oficial permite apenas listar os vídeos próprios publicados pelo usuário conectado (/v2/video/list/). O TikTok não disponibiliza endpoints autorizados de terceiros para consultar ou gravar favoritos, republicações ou histórico de curtidas.",
+          color = TvTextSecondary,
+          style = MaterialTheme.typography.bodyLarge,
+        )
+        TvFocusableButton(
+          text = "Ver suas publicações reais da API",
+          isPrimary = true,
+          onClick = { selectedTab = 0 },
+          testTag = "profile_switch_to_videos_button",
         )
       }
     }

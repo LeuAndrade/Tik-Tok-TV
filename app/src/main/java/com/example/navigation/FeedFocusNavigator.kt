@@ -24,7 +24,6 @@ import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -43,13 +42,9 @@ interface FeedDpadCallbacks {
 fun FeedDpadFocusHost(
   focusRequester: FocusRequester,
   isOverlayOpen: Boolean,
-  virtualPointerActive: Boolean,
   focusTriggerKey: Any = Unit,
   menuButtonFocusRequester: FocusRequester? = null,
   actionsButtonFocusRequester: FocusRequester? = null,
-  onMoveVirtualPointer: (dx: Float, dy: Float) -> Unit,
-  onClickVirtualPointer: () -> Unit,
-  onDisableVirtualPointer: () -> Unit,
   callbacks: FeedDpadCallbacks,
   modifier: Modifier = Modifier,
   content: @Composable BoxScope.(isFeedFocused: Boolean) -> Unit,
@@ -57,7 +52,7 @@ fun FeedDpadFocusHost(
   var isFeedFocused by remember { mutableStateOf(false) }
   var longPressConsumed by remember { mutableStateOf(false) }
 
-  LaunchedEffect(isOverlayOpen, virtualPointerActive, focusTriggerKey) {
+  LaunchedEffect(isOverlayOpen, focusTriggerKey) {
     if (!isOverlayOpen) {
       runCatching { focusRequester.requestFocus() }
     }
@@ -81,17 +76,8 @@ fun FeedDpadFocusHost(
         .onFocusChanged { state ->
           isFeedFocused = state.isFocused
         }
-        .onPreviewKeyEvent { keyEvent ->
-          if (!virtualPointerActive) return@onPreviewKeyEvent false
-          handleVirtualPointerKeyEvent(
-            keyEvent = keyEvent,
-            onMoveVirtualPointer = onMoveVirtualPointer,
-            onClickVirtualPointer = onClickVirtualPointer,
-            onDisableVirtualPointer = onDisableVirtualPointer,
-          )
-        }
         .onKeyEvent { keyEvent ->
-          if (isOverlayOpen || virtualPointerActive) return@onKeyEvent false
+          if (isOverlayOpen) return@onKeyEvent false
           handleFeedDpadKeyEvent(
             keyEvent = keyEvent,
             longPressConsumed = longPressConsumed,
@@ -101,7 +87,7 @@ fun FeedDpadFocusHost(
         }
         .focusable()
         .then(
-          if (isFeedFocused && !isOverlayOpen && !virtualPointerActive) {
+          if (isFeedFocused && !isOverlayOpen) {
             Modifier.border(2.dp, TikTokCyan.copy(alpha = 0.45f), RoundedCornerShape(4.dp))
           } else {
             Modifier.border(0.dp, Color.Transparent)
@@ -109,46 +95,6 @@ fun FeedDpadFocusHost(
         ),
   ) {
     content(isFeedFocused)
-  }
-}
-
-internal fun handleVirtualPointerKeyEvent(
-  keyEvent: KeyEvent,
-  pointerStep: Float = 0.035f,
-  onMoveVirtualPointer: (dx: Float, dy: Float) -> Unit,
-  onClickVirtualPointer: () -> Unit,
-  onDisableVirtualPointer: () -> Unit,
-): Boolean {
-  if (keyEvent.type != KeyEventType.KeyDown) return false
-  return when (keyEvent.key) {
-    Key.DirectionUp -> {
-      onMoveVirtualPointer(0f, -pointerStep)
-      true
-    }
-    Key.DirectionDown -> {
-      onMoveVirtualPointer(0f, pointerStep)
-      true
-    }
-    Key.DirectionLeft -> {
-      onMoveVirtualPointer(-pointerStep, 0f)
-      true
-    }
-    Key.DirectionRight -> {
-      onMoveVirtualPointer(pointerStep, 0f)
-      true
-    }
-    Key.DirectionCenter,
-    Key.Enter,
-    Key.NumPadEnter -> {
-      onClickVirtualPointer()
-      true
-    }
-    Key.Back,
-    Key.Escape -> {
-      onDisableVirtualPointer()
-      true
-    }
-    else -> false
   }
 }
 

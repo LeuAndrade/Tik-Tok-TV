@@ -21,19 +21,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.outlined.Login
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,15 +51,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.auth.CombinedAuthState
-import com.example.auth.WebSessionStatus
+import com.example.auth.NativeAuthState
 import com.example.ui.components.TvFocusableButton
 import com.example.ui.components.TvFocusableTile
 import com.example.ui.theme.TikTokCyan
 import com.example.ui.theme.TikTokPink
 import com.example.ui.theme.TvBlack
 import com.example.ui.theme.TvSurface
-import com.example.ui.theme.TvSurfaceElevated
 import com.example.ui.theme.TvTextPrimary
 import com.example.ui.theme.TvTextSecondary
 
@@ -71,21 +70,24 @@ private data class NavMenuItem(
 
 private val primaryMenuItems =
   listOf(
-    NavMenuItem(TvDestination.FOR_YOU, Icons.Default.Home, "Feed personalizado", "nav_for_you"),
-    NavMenuItem(TvDestination.FOLLOWING, Icons.Default.People, "Criadores seguidos", "nav_following"),
-    NavMenuItem(TvDestination.LIVES, Icons.Default.LiveTv, "Transmissões ao vivo", "nav_lives"),
-    NavMenuItem(TvDestination.SEARCH, Icons.Default.Search, "Vídeos, usuários e hashtags", "nav_search"),
-    NavMenuItem(TvDestination.INBOX, Icons.Default.Mail, "Conversas e notificações", "nav_inbox"),
-    NavMenuItem(TvDestination.FAVORITES, Icons.Default.Bookmark, "Salvos e coleções", "nav_favorites"),
-    NavMenuItem(TvDestination.PROFILE, Icons.Default.Person, "Sua conta e vídeos", "nav_profile"),
-    NavMenuItem(TvDestination.SETTINGS, Icons.Default.Settings, "Reprodução e desempenho", "nav_settings"),
+    NavMenuItem(TvDestination.HOME, Icons.Default.Home, "Central nativa & Meus vídeos", "nav_home"),
+    NavMenuItem(TvDestination.FOR_YOU, Icons.Default.PlayCircle, "Status da API de feed", "nav_for_you"),
+    NavMenuItem(TvDestination.FOLLOWING, Icons.Default.People, "Status da API de seguidos", "nav_following"),
+    NavMenuItem(TvDestination.EXPLORE, Icons.Default.Explore, "Restrições de descoberta", "nav_explore"),
+    NavMenuItem(TvDestination.SEARCH, Icons.Default.Search, "Consulta por ID (Display API)", "nav_search"),
+    NavMenuItem(TvDestination.LIVES, Icons.Default.LiveTv, "Status de Lives na API", "nav_lives"),
+    NavMenuItem(TvDestination.INBOX, Icons.Default.Mail, "Restrição de chat/DMs", "nav_inbox"),
+    NavMenuItem(TvDestination.FAVORITES, Icons.Default.Bookmark, "Biblioteca e restrições", "nav_favorites"),
+    NavMenuItem(TvDestination.PROFILE, Icons.Default.Person, "Perfil e vídeos Display API", "nav_profile"),
+    NavMenuItem(TvDestination.PUBLISH, Icons.Default.CloudUpload, "Enviar vídeo da TV (API)", "nav_publish"),
+    NavMenuItem(TvDestination.SETTINGS, Icons.Default.Settings, "Player, decodificador e RAM", "nav_settings"),
   )
 
 @Composable
 fun TvNavigationDrawerOverlay(
   visible: Boolean,
   currentDestination: TvDestination,
-  authState: CombinedAuthState,
+  authState: NativeAuthState,
   onSelectDestination: (TvDestination) -> Unit,
   onOpenLogin: () -> Unit,
   onDismiss: () -> Unit,
@@ -100,7 +102,7 @@ fun TvNavigationDrawerOverlay(
       if (primaryMenuItems.any { it.destination == currentDestination }) {
         currentDestination
       } else {
-        TvDestination.FOR_YOU
+        TvDestination.HOME
       }
 
     LaunchedEffect(Unit) {
@@ -118,10 +120,10 @@ fun TvNavigationDrawerOverlay(
           ),
     ) {
       Column(
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier =
           Modifier
-            .width(340.dp)
+            .width(360.dp)
             .fillMaxHeight()
             .background(TvSurface)
             .border(1.dp, TikTokCyan.copy(alpha = 0.25f))
@@ -151,20 +153,19 @@ fun TvNavigationDrawerOverlay(
           Spacer(modifier = Modifier.width(12.dp))
           Column {
             Text(
-              text = "TikTok TV",
+              text = "TikTok Native TV",
               color = TvTextPrimary,
               style = MaterialTheme.typography.titleLarge,
             )
             Text(
               text =
-                if (authState.webSessionStatus == WebSessionStatus.AUTHENTICATED) {
-                  "Sessão Web conectada"
-                } else if (authState.oauthConnected) {
-                  authState.userProfile?.displayName ?: "Login Kit conectado"
+                if (authState.oauthConnected) {
+                  authState.userProfile?.displayName?.ifBlank { "OAuth Login Kit conectado" }
+                    ?: "OAuth Login Kit conectado"
                 } else {
-                  "Modo visitante"
+                  "Conta desconectada"
                 },
-              color = if (authState.webSessionStatus == WebSessionStatus.AUTHENTICATED) TikTokCyan else TvTextSecondary,
+              color = if (authState.oauthConnected) TikTokCyan else TvTextSecondary,
               style = MaterialTheme.typography.labelSmall,
             )
           }
@@ -192,9 +193,9 @@ fun TvNavigationDrawerOverlay(
         Spacer(modifier = Modifier.height(6.dp))
 
         TvFocusableButton(
-          text = if (authState.webSessionStatus == WebSessionStatus.AUTHENTICATED) "Gerenciar conta / Entrar" else "Entrar com TikTok / QR",
-          icon = Icons.Outlined.Login,
-          isPrimary = authState.webSessionStatus != WebSessionStatus.AUTHENTICATED,
+          text = if (authState.oauthConnected) "Gerenciar conta OAuth" else "Entrar com QR Code",
+          icon = Icons.AutoMirrored.Filled.Login,
+          isPrimary = !authState.oauthConnected,
           onClick = onOpenLogin,
           modifier = Modifier.fillMaxWidth(),
           testTag = "nav_login_button",

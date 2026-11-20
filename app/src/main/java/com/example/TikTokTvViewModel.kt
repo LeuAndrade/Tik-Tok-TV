@@ -4,14 +4,22 @@ import android.app.Application
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.auth.CombinedAuthState
+import coil.annotation.ExperimentalCoilApi
+import coil.imageLoader
+import com.example.api.ContentPostingRepository
+import com.example.api.ContentPublishState
+import com.example.api.CreatorInfoData
+import com.example.auth.NativeAuthState
 import com.example.auth.QrAuthorizationState
 import com.example.auth.SecureTokenStore
 import com.example.auth.TikTokAuthRepository
 import com.example.auth.TikTokDisplayVideo
-import com.example.auth.WebSessionStatus
+import com.example.data.AppCacheDatabase
+import com.example.data.TikTokCacheRepository
+import com.example.feed.ActiveVideoItem
 import com.example.navigation.ActiveOverlay
 import com.example.navigation.SearchCategory
 import com.example.navigation.TvDestination
@@ -21,13 +29,11 @@ import com.example.performance.MemoryMonitor
 import com.example.performance.MemorySnapshot
 import com.example.performance.PerformanceProfile
 import com.example.performance.PlaybackDiagnosticEntry
+import com.example.player.DecoderMode
+import com.example.player.VideoCacheManager
 import com.example.settings.TvSettingsRepository
 import com.example.settings.TvSettingsState
-import com.example.web.ActiveVideoMetadata
-import com.example.web.TikTokWebBridge
-import com.example.web.TikTokWebController
-import com.example.web.TikTokWebDomainPolicy
-import com.example.web.TikTokWebSessionManager
+import com.example.sharing.TikTokShareUtils
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Job
@@ -42,19 +48,25 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class TikTokTvUiState(
-  val currentDestination: TvDestination = TvDestination.FOR_YOU,
+  val currentDestination: TvDestination = TvDestination.HOME,
   val activeOverlay: ActiveOverlay = ActiveOverlay.NONE,
-  val virtualPointerActive: Boolean = false,
-  val pointerX: Float = 0.5f,
-  val pointerY: Float = 0.5f,
   val statusBannerMessage: String? = null,
   val searchQuery: String = "",
-  val searchCategory: SearchCategory = SearchCategory.ALL,
+  val searchCategory: SearchCategory = SearchCategory.VIDEO_IDS,
+  val searchResults: List<TikTokDisplayVideo> = emptyList(),
+  val isSearching: Boolean = false,
+  val searchError: String? = null,
   val displayVideos: List<TikTokDisplayVideo> = emptyList(),
+  val activeVideoIndex: Int = -1,
+  val activeVideo: ActiveVideoItem? = null,
+  val isPlayerPaused: Boolean = false,
+  val isPlayerMuted: Boolean = false,
   val isLoadingDisplayVideos: Boolean = false,
   val displayVideosError: String? = null,
-  val activeNativeStreamUrl: String? = null,
-  val activeNativeStreamTitle: String = "",
+  val creatorInfo: CreatorInfoData? = null,
+  val publishState: ContentPublishState = ContentPublishState.Idle,
+  val selectedPublishUri: Uri? = null,
+  val mediaCacheUsageLabel: String = "0 MB",
 )
 
 class TikTokTvViewModel(application: Application) : AndroidViewModel(application) {
@@ -63,12 +75,10 @@ class TikTokTvViewModel(application: Application) : AndroidViewModel(application
   private val tokenStore = SecureTokenStore(application, moshi)
   val authRepository = TikTokAuthRepository(tokenStore)
   val settingsRepository = TvSettingsRepository(application)
+  val cacheRepository = TikTokCacheRepository(AppCacheDatabase.getInstance(application).cacheDao())
+  val contentPostingRepository = ContentPostingRepository()
   val memoryMonitor = MemoryMonitor(application)
   val deviceCapabilities: DeviceCapabilities = DeviceCapabilityDetector.detect(application)
-
-  val webSessionManager = TikTokWebSessionManager()
-  val webBridge = TikTokWebBridge()
-  val webController = TikTokWebController(webSessionManager, webBridge, memoryMonitor)
 
   private val _uiState = MutableStateFlow(TikTokTvUiState())
   val uiState: StateFlow<TikTokTvUiState> = _uiState.asStateFlow()
@@ -83,27 +93,23 @@ class TikTokTvViewModel(application: Application) : AndroidViewModel(application
   val memorySnapshot: StateFlow<MemorySnapshot> = memoryMonitor.snapshot
   val diagnostics: StateFlow<List<PlaybackDiagnosticEntry>> = memoryMonitor.diagnostics
   val qrState: StateFlow<QrAuthorizationState> = authRepository.qrState
-  val videoMetadata: StateFlow<ActiveVideoMetadata> = webBridge.metadata
 
-  val combinedAuthState: StateFlow<CombinedAuthState> =
+  val nativeAuthState: StateFlow<NativeAuthState> =
     combine(
       authRepository.tokenBundleFlow,
       authRepository.userProfileFlow,
-      webSessionManager.webStatus,
-      webBridge.metadata,
-    ) { tokens, profile, webStatus, metadata ->
-      CombinedAuthState(
+      cacheRepository.cachedProfile,
+    ) { tokens, storedProfile, cachedProfile ->
+      NativeAuthState(
         oauthConnected = tokens != null && !tokens.isRefreshTokenExpired(),
         oauthTokenExpiresAtMs = tokens?.let { it.obtainedAtEpochMs + it.expiresInSeconds * 1000L },
         oauthScopes = tokens?.scope.orEmpty(),
-        userProfile = profile,
-        webSessionStatus =
-          if (metadata.isSecurityChallenge) WebSessionStatus.SECURITY_CHALLENGE else webStatus,
+        userProfile = storedProfile ?: cachedProfile,
       )
     }.stateIn(
       scope = viewModelScope,
       started = SharingStarted.WhileSubscribed(5000L),
-      initialValue = CombinedAuthState(),
+      initialValue = NativeAuthState(),
     )
 
   private var qrPollingJob: Job? = null
@@ -112,27 +118,19 @@ class TikTokTvViewModel(application: Application) : AndroidViewModel(application
     viewModelScope.launch {
       settingsRepository.initializeRecommendedProfileIfNeeded(deviceCapabilities.recommendedProfile)
     }
-    webSessionManager.refreshSessionStatus()
 
+    // Populate offline cache from Room DB
     viewModelScope.launch {
-      webBridge.actionResults.collectLatest { result ->
-        if (result.message.isNotBlank()) {
-          showStatusBanner(result.message)
-        }
-        if (result.newState == "login_required") {
-          webSessionManager.refreshSessionStatus()
+      cacheRepository.cachedVideos.collectLatest { cached ->
+        if (cached.isNotEmpty() && _uiState.value.displayVideos.isEmpty()) {
+          _uiState.update { state ->
+            state.copy(displayVideos = cached)
+          }
         }
       }
     }
 
-    viewModelScope.launch {
-      webBridge.metadata.collectLatest { meta ->
-        webSessionManager.refreshSessionStatus(
-          pageUrl = meta.videoUrl,
-          securityChallengeDetected = meta.isSecurityChallenge,
-        )
-      }
-    }
+    refreshMediaCacheLabel()
   }
 
   fun navigateTo(destination: TvDestination) {
@@ -140,15 +138,17 @@ class TikTokTvViewModel(application: Application) : AndroidViewModel(application
       it.copy(
         currentDestination = destination,
         activeOverlay = ActiveOverlay.NONE,
-        activeNativeStreamUrl = null,
       )
     }
-    if (destination != TvDestination.SETTINGS && destination != TvDestination.LOGIN) {
-      webController.loadUrl(destination.webUrl)
+    if (destination == TvDestination.PROFILE || destination == TvDestination.HOME) {
+      if (nativeAuthState.value.oauthConnected) {
+        refreshAuthorizedProfileAndVideos()
+      }
     }
-    if (destination == TvDestination.PROFILE || destination == TvDestination.FAVORITES) {
-      refreshAuthorizedProfileAndVideos()
+    if (destination == TvDestination.PUBLISH && nativeAuthState.value.oauthConnected) {
+      loadCreatorInfo()
     }
+    refreshMediaCacheLabel()
     memoryMonitor.refreshMemorySnapshot()
   }
 
@@ -162,20 +162,16 @@ class TikTokTvViewModel(application: Application) : AndroidViewModel(application
 
   fun handleBackPress(): Boolean {
     val state = _uiState.value
-    if (state.virtualPointerActive) {
-      _uiState.update { it.copy(virtualPointerActive = false) }
-      return true
-    }
     if (state.activeOverlay != ActiveOverlay.NONE) {
       _uiState.update { it.copy(activeOverlay = ActiveOverlay.NONE) }
       return true
     }
-    if (state.activeNativeStreamUrl != null) {
-      _uiState.update { it.copy(activeNativeStreamUrl = null) }
+    if (state.activeVideo != null && state.activeVideo.hasPlayableNativeStream) {
+      _uiState.update { it.copy(activeVideo = null, activeVideoIndex = -1) }
       return true
     }
-    if (state.currentDestination != TvDestination.FOR_YOU) {
-      navigateTo(TvDestination.FOR_YOU)
+    if (state.currentDestination != TvDestination.HOME) {
+      navigateTo(TvDestination.HOME)
       return true
     }
     if (settingsState.value.confirmBeforeExit) {
@@ -185,124 +181,162 @@ class TikTokTvViewModel(application: Application) : AndroidViewModel(application
     return false
   }
 
-  fun toggleVirtualPointer() {
+  fun selectDisplayVideo(index: Int) {
+    if (index < 0) {
+      _uiState.update { it.copy(activeVideoIndex = -1, activeVideo = null) }
+      return
+    }
+    val videos = _uiState.value.displayVideos
+    val target = videos.getOrNull(index) ?: return
+    val profile = nativeAuthState.value.userProfile
+    val activeItem =
+      ActiveVideoItem.fromDisplayVideo(
+        video = target,
+        authorName = profile?.displayName ?: "Criador TikTok",
+        authorHandle = profile?.username?.takeIf { it.isNotBlank() }?.let { "@$it" } ?: "@tiktok",
+      )
     _uiState.update {
-      val next = !it.virtualPointerActive
       it.copy(
-        virtualPointerActive = next,
+        currentDestination = TvDestination.HOME,
         activeOverlay = ActiveOverlay.NONE,
-        statusBannerMessage =
-          if (next) "Ponteiro Virtual ativado. Use as setas e OK."
-          else "Ponteiro Virtual desativado.",
+        activeVideoIndex = index,
+        activeVideo = activeItem,
       )
     }
   }
 
-  fun moveVirtualPointer(dx: Float, dy: Float) {
-    val speed = settingsState.value.virtualPointerSensitivity
-    _uiState.update {
-      it.copy(
-        pointerX = (it.pointerX + dx * speed).coerceIn(0.02f, 0.98f),
-        pointerY = (it.pointerY + dy * speed).coerceIn(0.02f, 0.98f),
-      )
+  fun selectDisplayVideo(video: TikTokDisplayVideo) {
+    val existingIdx = _uiState.value.displayVideos.indexOfFirst { it.id == video.id }
+    if (existingIdx >= 0) {
+      selectDisplayVideo(existingIdx)
+    } else {
+      val profile = nativeAuthState.value.userProfile
+      val activeItem =
+        ActiveVideoItem.fromDisplayVideo(
+          video = video,
+          authorName = profile?.displayName ?: "Criador TikTok",
+          authorHandle = profile?.username?.takeIf { it.isNotBlank() }?.let { "@$it" } ?: "@tiktok",
+        )
+      _uiState.update {
+        it.copy(
+          currentDestination = TvDestination.HOME,
+          activeOverlay = ActiveOverlay.NONE,
+          activeVideoIndex = -1,
+          activeVideo = activeItem,
+        )
+      }
     }
-  }
-
-  fun clickVirtualPointer() {
-    val state = _uiState.value
-    webController.simulateTapAtNormalized(state.pointerX, state.pointerY)
   }
 
   fun stepVideo(direction: Int) {
-    webController.evaluateBridgeScript(TikTokWebBridge.buildStepVideoScript(direction))
+    val list = _uiState.value.displayVideos
+    if (list.isEmpty()) {
+      showStatusBanner("Nenhum vídeo carregado para avançar.")
+      return
+    }
+    val current = _uiState.value.activeVideoIndex
+    val nextIndex =
+      if (current < 0) 0
+      else ((current + direction) % list.size + list.size) % list.size
+    selectDisplayVideo(nextIndex)
   }
 
   fun togglePlayPause() {
-    webController.evaluateBridgeScript(TikTokWebBridge.buildPlayPauseScript())
+    _uiState.update { it.copy(isPlayerPaused = !it.isPlayerPaused) }
   }
 
   fun toggleMute() {
-    webController.evaluateBridgeScript(TikTokWebBridge.buildToggleMuteScript())
-  }
-
-  fun performWebVideoAction(actionName: String) {
-    webController.evaluateBridgeScript(TikTokWebBridge.buildToggleActionScript(actionName))
+    _uiState.update {
+      val next = !it.isPlayerMuted
+      it.copy(
+        isPlayerMuted = next,
+        statusBannerMessage = if (next) "Som silenciado" else "Som ativado",
+      )
+    }
   }
 
   fun openCommentsPanel() {
-    webController.evaluateBridgeScript(TikTokWebBridge.buildToggleActionScript("comments"))
     _uiState.update { it.copy(activeOverlay = ActiveOverlay.COMMENTS_PANEL) }
   }
 
-  fun submitComment(text: String) {
-    if (text.isBlank()) {
-      showStatusBanner("Digite um comentário antes de enviar.")
-      return
-    }
-    webController.evaluateBridgeScript(TikTokWebBridge.buildPostCommentScript(text))
+  fun notifyBlockedSocialAction(actionLabel: String) {
+    showStatusBanner("$actionLabel bloqueado: a API oficial do TikTok não autoriza gravação de ações sociais por terceiros.")
   }
 
   fun executeSearch(query: String, category: SearchCategory) {
     val trimmed = query.trim()
-    _uiState.update { it.copy(searchQuery = trimmed, searchCategory = category) }
+    _uiState.update { it.copy(searchQuery = trimmed, searchCategory = category, searchError = null) }
     if (trimmed.isBlank()) return
+
     viewModelScope.launch {
       settingsRepository.recordSearchQuery(trimmed)
-    }
-    val encoded = android.net.Uri.encode(trimmed)
-    val url =
-      when (category) {
-        SearchCategory.ALL -> "https://www.tiktok.com/search?q=$encoded"
-        SearchCategory.VIDEOS -> "https://www.tiktok.com/search/video?q=$encoded"
-        SearchCategory.USERS -> "https://www.tiktok.com/search/user?q=$encoded"
-        SearchCategory.HASHTAGS -> "https://www.tiktok.com/tag/${trimmed.removePrefix("#")}"
-        SearchCategory.SOUNDS -> "https://www.tiktok.com/search?q=$encoded"
-        SearchCategory.LIVES -> "https://www.tiktok.com/search/live?q=$encoded"
-      }
-    webController.loadUrl(url)
-  }
+      val tokens = trimmed.split(",", " ", ";").map { it.trim() }.filter { it.isNotBlank() }
+      val allNumericIds = tokens.isNotEmpty() && tokens.all { id -> id.all { it.isDigit() } }
 
-  fun openCreatorProfile(handleOrUrl: String) {
-    val clean = handleOrUrl.trim().removePrefix("@")
-    val url =
-      if (handleOrUrl.startsWith("https://")) {
-        TikTokWebDomainPolicy.sanitizeShareUrl(handleOrUrl)
-      } else if (clean.isNotBlank()) {
-        "https://www.tiktok.com/@$clean"
+      if (category == SearchCategory.VIDEO_IDS && allNumericIds) {
+        _uiState.update { it.copy(isSearching = true, searchError = null) }
+        val result = authRepository.queryAuthorizedVideosByIds(tokens)
+        result
+          .onSuccess { found ->
+            _uiState.update {
+              it.copy(
+                searchResults = found,
+                isSearching = false,
+                searchError = if (found.isEmpty()) "Nenhum vídeo encontrado na sua conta para os IDs informados." else null,
+              )
+            }
+          }
+          .onFailure { err ->
+            _uiState.update {
+              it.copy(
+                searchResults = emptyList(),
+                isSearching = false,
+                searchError = err.message ?: "Falha ao consultar POST /v2/video/query/.",
+              )
+            }
+          }
       } else {
-        "https://www.tiktok.com/profile"
+        // Honest filter over already authorized/cached videos when non-ID text or restricted global search selected
+        val filtered =
+          _uiState.value.displayVideos.filter { video ->
+            video.id.contains(trimmed, ignoreCase = true) ||
+              video.title.contains(trimmed, ignoreCase = true) ||
+              video.videoDescription.contains(trimmed, ignoreCase = true)
+          }
+        val notice =
+          if (category != SearchCategory.VIDEO_IDS) {
+            "Pesquisa global '${category.label}' indisponível na API pública comercial (Research API restrita). Exibindo apenas correspondências nos vídeos já autorizados da conta (${filtered.size})."
+          } else {
+            null
+          }
+        _uiState.update {
+          it.copy(
+            searchResults = filtered,
+            isSearching = false,
+            searchError = notice,
+          )
+        }
       }
-    _uiState.update {
-      it.copy(
-        currentDestination = TvDestination.PROFILE,
-        activeOverlay = ActiveOverlay.NONE,
-      )
     }
-    webController.loadUrl(url)
-  }
-
-  fun openTikTokDirectLogin() {
-    _uiState.update {
-      it.copy(
-        currentDestination = TvDestination.LOGIN,
-        activeOverlay = ActiveOverlay.NONE,
-      )
-    }
-    webController.loadUrl("https://www.tiktok.com/login")
-  }
-
-  fun loadTikTokWebQrLogin() {
-    webController.loadUrl("https://www.tiktok.com/login/qrcode")
   }
 
   fun startOAuthQrAuthorization() {
     qrPollingJob?.cancel()
     qrPollingJob =
       viewModelScope.launch {
-        authRepository.startQrCodeLoginFlow().collectLatest { state ->
+        authRepository.startQrCodeLoginFlow(
+          requestedScope = "user.info.basic,user.info.profile,user.info.stats,video.list,video.upload,video.publish",
+        ).collectLatest { state ->
           if (state is QrAuthorizationState.Confirmed) {
+            state.profile?.let { cacheRepository.cacheProfile(it) }
             showStatusBanner("Login Kit autorizado para ${state.profile?.displayName ?: "sua conta"}!")
             refreshAuthorizedProfileAndVideos()
+            _uiState.update {
+              it.copy(
+                currentDestination = TvDestination.HOME,
+                activeOverlay = ActiveOverlay.NONE,
+              )
+            }
           }
         }
       }
@@ -316,10 +350,14 @@ class TikTokTvViewModel(application: Application) : AndroidViewModel(application
   fun refreshAuthorizedProfileAndVideos() {
     viewModelScope.launch {
       _uiState.update { it.copy(isLoadingDisplayVideos = true, displayVideosError = null) }
-      authRepository.fetchAndPersistUserInfo()
+      val profile = authRepository.fetchAndPersistUserInfo()
+      if (profile != null) {
+        cacheRepository.cacheProfile(profile)
+      }
       val result = authRepository.fetchAuthorizedUserVideos()
       result
         .onSuccess { data ->
+          cacheRepository.replaceCachedVideos(data.videos)
           _uiState.update {
             it.copy(
               displayVideos = data.videos,
@@ -329,6 +367,7 @@ class TikTokTvViewModel(application: Application) : AndroidViewModel(application
           }
         }
         .onFailure { err ->
+          memoryMonitor.recordDiagnostic("DisplayAPI", err.message ?: "Erro ao listar vídeos")
           _uiState.update {
             it.copy(
               isLoadingDisplayVideos = false,
@@ -339,35 +378,117 @@ class TikTokTvViewModel(application: Application) : AndroidViewModel(application
     }
   }
 
-  fun openDisplayVideo(video: TikTokDisplayVideo) {
-    val targetUrl =
-      when {
-        video.embedLink.startsWith("https://") -> video.embedLink
-        video.shareUrl.startsWith("https://") -> video.shareUrl
-        else -> "https://www.tiktok.com"
-      }
+  fun selectLocalPublishUri(uri: Uri) {
     _uiState.update {
       it.copy(
-        currentDestination = TvDestination.FOR_YOU,
-        activeOverlay = ActiveOverlay.NONE,
-        activeNativeStreamUrl = null,
+        selectedPublishUri = uri,
+        publishState = ContentPublishState.Idle,
       )
     }
-    webController.loadUrl(targetUrl)
+  }
+
+  fun loadCreatorInfo() {
+    viewModelScope.launch {
+      val token = authRepository.ensureValidAccessToken()
+      if (token.isNullOrBlank()) {
+        showStatusBanner("Conecte sua conta via QR Code para consultar creator_info.")
+        return@launch
+      }
+      _uiState.update { it.copy(publishState = ContentPublishState.LoadingCreatorInfo) }
+      contentPostingRepository.queryCreatorInfo(token)
+        .onSuccess { info ->
+          _uiState.update {
+            it.copy(
+              creatorInfo = info,
+              publishState = ContentPublishState.Idle,
+            )
+          }
+        }
+        .onFailure { err ->
+          memoryMonitor.recordDiagnostic("ContentPosting", err.message ?: "Erro em creator_info")
+          _uiState.update {
+            it.copy(publishState = ContentPublishState.Failed(err.message ?: "Erro ao consultar creator_info"))
+          }
+        }
+    }
+  }
+
+  fun publishLocalVideo(
+    uri: Uri,
+    caption: String,
+    privacyLevel: String,
+    disableComment: Boolean,
+    disableDuet: Boolean,
+    disableStitch: Boolean,
+    publishDirectly: Boolean,
+  ) {
+    viewModelScope.launch {
+      val token = authRepository.ensureValidAccessToken()
+      if (token.isNullOrBlank()) {
+        _uiState.update {
+          it.copy(publishState = ContentPublishState.Failed("Sessão OAuth desconectada ou expirada."))
+        }
+        return@launch
+      }
+      val result =
+        contentPostingRepository.uploadAndPublishVideo(
+          contentResolver = getApplication<Application>().contentResolver,
+          videoUri = uri,
+          accessToken = token,
+          caption = caption,
+          privacyLevel = privacyLevel,
+          disableComment = disableComment,
+          disableDuet = disableDuet,
+          disableStitch = disableStitch,
+          publishDirectly = publishDirectly,
+          onProgress = { state ->
+            _uiState.update { it.copy(publishState = state) }
+          },
+        )
+      result.onFailure { err ->
+        val msg = err.message ?: "Falha no envio oficial para o TikTok."
+        memoryMonitor.recordDiagnostic("Publish", msg)
+        _uiState.update { it.copy(publishState = ContentPublishState.Failed(msg)) }
+      }
+    }
   }
 
   fun copyShareLinkToClipboard(url: String) {
-    val safeUrl = TikTokWebDomainPolicy.sanitizeShareUrl(url)
+    val safeUrl = TikTokShareUtils.sanitizeShareUrl(url)
     val cm = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-    cm?.setPrimaryClip(ClipData.newPlainText("Link do TikTok", safeUrl))
+    cm?.setPrimaryClip(ClipData.newPlainText("Link oficial TikTok", safeUrl))
     showStatusBanner("Link copiado: $safeUrl")
   }
 
-  fun clearWebAndImageCaches() {
-    webController.clearCache(includeDisk = true)
-    memoryMonitor.recordDiagnostic("Cache", "Cache de navegador e mídia limpos manualmente.")
-    memoryMonitor.refreshMemorySnapshot()
-    showStatusBanner("Cache limpo com sucesso.")
+  @OptIn(ExperimentalCoilApi::class)
+  fun clearAllCaches() {
+    viewModelScope.launch {
+      val app = getApplication<Application>()
+      VideoCacheManager.clearCache(app)
+      runCatching {
+        app.imageLoader.memoryCache?.clear()
+        app.imageLoader.diskCache?.clear()
+      }
+      cacheRepository.clearAllCache()
+      refreshMediaCacheLabel()
+      memoryMonitor.recordDiagnostic("Cache", "Caches Media3, Coil e Room limpos manualmente.")
+      memoryMonitor.refreshMemorySnapshot()
+      showStatusBanner("Caches locais limpos com sucesso.")
+    }
+  }
+
+  fun refreshMediaCacheLabel() {
+    val bytes = VideoCacheManager.currentCacheBytes(getApplication())
+    val mb = bytes.toDouble() / (1024.0 * 1024.0)
+    val label = String.format(java.util.Locale.US, "%.1f MB", mb)
+    _uiState.update { it.copy(mediaCacheUsageLabel = label) }
+  }
+
+  fun setDecoderMode(mode: DecoderMode) {
+    viewModelScope.launch {
+      settingsRepository.setDecoderMode(mode)
+      showStatusBanner("Decodificador alterado para ${mode.displayName}.")
+    }
   }
 
   fun setPerformanceProfile(profile: PerformanceProfile) {
@@ -402,14 +523,12 @@ class TikTokTvViewModel(application: Application) : AndroidViewModel(application
   }
 
   fun updateNavigationSetting(
-    pointerSensitivity: Float? = null,
     scrollSpeed: Float? = null,
     confirmBeforeExit: Boolean? = null,
     textScale: Float? = null,
   ) {
     viewModelScope.launch {
       settingsRepository.updateNavigationSetting(
-        pointerSensitivity = pointerSensitivity,
         scrollSpeed = scrollSpeed,
         confirmBeforeExit = confirmBeforeExit,
         textScale = textScale,
@@ -424,22 +543,35 @@ class TikTokTvViewModel(application: Application) : AndroidViewModel(application
     }
   }
 
+  @OptIn(ExperimentalCoilApi::class)
   fun logoutAndWipeLocalData() {
     qrPollingJob?.cancel()
     viewModelScope.launch {
+      val app = getApplication<Application>()
       authRepository.logoutAndWipeOAuth()
-      webSessionManager.wipeAllWebSessionData(getApplication(), webController.webView)
+      cacheRepository.clearAllCache()
+      VideoCacheManager.clearCache(app)
+      runCatching {
+        app.imageLoader.memoryCache?.clear()
+        app.imageLoader.diskCache?.clear()
+      }
       settingsRepository.clearSearchHistory()
       memoryMonitor.clearDiagnostics()
+      refreshMediaCacheLabel()
       _uiState.update {
         it.copy(
           displayVideos = emptyList(),
           displayVideosError = null,
+          activeVideoIndex = -1,
+          activeVideo = null,
+          searchResults = emptyList(),
+          creatorInfo = null,
+          publishState = ContentPublishState.Idle,
           activeOverlay = ActiveOverlay.NONE,
           currentDestination = TvDestination.LOGIN,
         )
       }
-      showStatusBanner("Sessões OAuth e cookies web excluídos deste aparelho.")
+      showStatusBanner("Sessão OAuth revogada e dados locais excluídos.")
     }
   }
 
@@ -453,7 +585,6 @@ class TikTokTvViewModel(application: Application) : AndroidViewModel(application
 
   override fun onCleared() {
     qrPollingJob?.cancel()
-    webController.destroyWebView()
     super.onCleared()
   }
 }

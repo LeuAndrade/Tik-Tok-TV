@@ -3,16 +3,24 @@ package com.example.performance
 import android.app.ActivityManager
 import android.content.Context
 import android.content.pm.PackageManager
-import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.os.Build
-import android.webkit.WebView
 
 data class HardwareDecoderInfo(
   val mimeType: String,
   val codecName: String,
   val isHardwareAccelerated: Boolean,
-)
+) {
+  val friendlyCodecLabel: String
+    get() =
+      when (mimeType) {
+        "video/avc" -> "H.264"
+        "video/hevc" -> "H.265/HEVC"
+        "video/x-vnd.on2.vp9" -> "VP9"
+        "video/av01" -> "AV1"
+        else -> mimeType
+      }
+}
 
 data class DeviceCapabilities(
   val totalRamMb: Long,
@@ -21,14 +29,22 @@ data class DeviceCapabilities(
   val isFireOs: Boolean,
   val isAndroidTv: Boolean,
   val hasTouchscreen: Boolean,
+  val hasDpadNavigation: Boolean,
+  val screenResolutionLabel: String,
+  val screenDensityDpi: Int,
   val osVersionLabel: String,
   val deviceModelLabel: String,
   val primaryAbi: String,
   val supportedAbis: List<String>,
-  val webViewVersion: String,
   val hardwareDecoders: List<HardwareDecoderInfo>,
   val recommendedProfile: PerformanceProfile,
-)
+) {
+  val supportedCodecSummary: String
+    get() {
+      val hw = hardwareDecoders.filter { it.isHardwareAccelerated }.map { it.friendlyCodecLabel }.distinct()
+      return if (hw.isNotEmpty()) hw.joinToString(", ") else "MediaCodec padrão do sistema"
+    }
+}
 
 object DeviceCapabilityDetector {
 
@@ -49,17 +65,14 @@ object DeviceCapabilityDetector {
       pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
         pm.hasSystemFeature("android.software.leanback_only")
     val hasTouchscreen = pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
+    val hasDpadNavigation = isAndroidTv || isFireOs || !hasTouchscreen
+
+    val metrics = context.resources.displayMetrics
+    val resolutionLabel = "${metrics.widthPixels}x${metrics.heightPixels}"
+    val densityDpi = metrics.densityDpi
 
     val abis = Build.SUPPORTED_ABIS?.toList().orEmpty()
     val primaryAbi = abis.firstOrNull() ?: "armeabi-v7a"
-
-    val webViewPkg =
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        runCatching { WebView.getCurrentWebViewPackage()?.versionName }.getOrNull()
-      } else {
-        null
-      }
-    val webViewVersion = webViewPkg ?: "Sistema WebView padrão"
 
     val decoders = detectHardwareDecoders()
     val osPrefix = if (isFireOs) "Fire OS / Android" else "Android"
@@ -73,11 +86,13 @@ object DeviceCapabilityDetector {
       isFireOs = isFireOs,
       isAndroidTv = isAndroidTv,
       hasTouchscreen = hasTouchscreen,
+      hasDpadNavigation = hasDpadNavigation,
+      screenResolutionLabel = resolutionLabel,
+      screenDensityDpi = densityDpi,
       osVersionLabel = osVersionLabel,
       deviceModelLabel = deviceModelLabel,
       primaryAbi = primaryAbi,
       supportedAbis = abis,
-      webViewVersion = webViewVersion,
       hardwareDecoders = decoders,
       recommendedProfile = PerformanceProfile.recommendedForRamMb(totalRamMb, isLowRam),
     )
@@ -110,7 +125,7 @@ object DeviceCapabilityDetector {
             }
         }
         .distinctBy { "${it.mimeType}:${it.codecName}" }
-        .take(12)
+        .take(16)
         .toList()
     }.getOrDefault(emptyList())
   }

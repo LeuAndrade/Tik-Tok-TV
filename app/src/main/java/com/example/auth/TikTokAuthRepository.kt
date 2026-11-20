@@ -63,8 +63,8 @@ class TikTokAuthRepository(
 
   fun isBackendConfigured(url: String = backendBaseUrl): Boolean {
     val clean = url.trim()
-    return clean.startsWith("https://") &&
-      !clean.contains("your-tiktok-tv-auth-backend.example.com", ignoreCase = true) ||
+    return (clean.startsWith("https://") &&
+      !clean.contains("your-tiktok-tv-auth-backend.example.com", ignoreCase = true)) ||
       clean.startsWith("http://10.0.2.2") ||
       clean.startsWith("http://localhost")
   }
@@ -80,12 +80,15 @@ class TikTokAuthRepository(
 
   fun generateCsrfState(): String = generateClientTicket(24)
 
-  fun startQrCodeLoginFlow(): Flow<QrAuthorizationState> = flow {
+  fun startQrCodeLoginFlow(
+    requestedScope: String = "user.info.basic,user.info.profile,user.info.stats,video.list",
+  ): Flow<QrAuthorizationState> = flow {
     val api = backendApi
     if (api == null) {
       val errorState =
         QrAuthorizationState.Error(
-          message = "Backend de autenticação OAuth não configurado (TIKTOK_AUTH_BACKEND_URL). Use o login oficial via WebView TikTok abaixo ou configure o auth-backend.",
+          message =
+            "Servidor OAuth (TIKTOK_AUTH_BACKEND_URL) não configurado. Como este cliente é 100% nativo (sem navegador/WebView), hospede a pasta auth-backend com sua TikTok Client Key/Secret para iniciar a autorização oficial por QR Code v2.",
           isConfigurationMissing = true,
         )
       _qrState.value = errorState
@@ -105,6 +108,7 @@ class TikTokAuthRepository(
           QrStartRequest(
             clientTicket = clientTicket,
             state = csrfState,
+            scope = requestedScope,
           ),
         )
       } catch (e: CancellationException) {
@@ -271,6 +275,36 @@ class TikTokAuthRepository(
           Result.failure(IllegalStateException("${apiError.code}: ${apiError.message}"))
         } else {
           Result.success(body?.data ?: VideoListData())
+        }
+      }
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Result.failure(e)
+    }
+  }
+
+  suspend fun queryAuthorizedVideosByIds(videoIds: List<String>): Result<List<TikTokDisplayVideo>> {
+    val cleanIds = videoIds.map { it.trim() }.filter { it.isNotBlank() }.take(20)
+    if (cleanIds.isEmpty()) return Result.success(emptyList())
+    val accessToken =
+      ensureValidAccessToken()
+        ?: return Result.failure(IllegalStateException("Conecte sua conta via QR Code Login Kit v2 para consultar vídeos por ID."))
+    return try {
+      val resp =
+        displayApi.queryVideos(
+          bearerToken = "Bearer $accessToken",
+          request = VideoQueryRequest(filters = VideoQueryFilters(videoIds = cleanIds)),
+        )
+      if (!resp.isSuccessful) {
+        Result.failure(IllegalStateException("Display API query HTTP ${resp.code()}"))
+      } else {
+        val body = resp.body()
+        val apiError = body?.error
+        if (apiError != null && apiError.code != "ok" && apiError.code.isNotBlank()) {
+          Result.failure(IllegalStateException("${apiError.code}: ${apiError.message}"))
+        } else {
+          Result.success(body?.data?.videos.orEmpty())
         }
       }
     } catch (e: CancellationException) {

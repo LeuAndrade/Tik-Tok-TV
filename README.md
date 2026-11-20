@@ -1,34 +1,38 @@
-# TikTok TV — Cliente para Android TV, Google TV e Amazon Fire TV Stick
+# TikTok Native TV — Cliente 100% Nativo para Android TV, Google TV e Amazon Fire TV Stick
 
-Cliente independente de televisão desenvolvido em **Kotlin + Jetpack Compose for TV + Media3 + WebView otimizada**, projetado para uso integral com **controle remoto (D-pad)** em telas 16:9 (Full HD / 4K), inclusive em dispositivos com **1 GB de RAM** (como Fire TV Stick Lite/HD).
+Aplicativo cliente nativo de televisão desenvolvido exclusivamente em **Kotlin + Jetpack Compose for TV + Media3/ExoPlayer + Room + Retrofit/OkHttp/Moshi**, projetado para telas 16:9 (Full HD / 4K), navegação 100% espacial por **controle remoto (D-pad)** e dispositivos com **1 GB de RAM** (como Amazon Fire TV Stick Lite/HD).
 
-> **Aviso de independência:** Este projeto é um cliente independente que interage com as interfaces oficiais do TikTok (TikTok Web e TikTok Open APIs / Login Kit v2 / Display API v2). Não utiliza o identificador de pacote nem a assinatura digital do aplicativo oficial do TikTok.
+> **Regra absoluta cumprida:** este projeto **NÃO utiliza** Android `WebView`, Chromium, PWA, HTML/CSS, JavaScript, Custom Tabs, Trusted Web Activity ou emulação de navegador. Toda interface e reprodução de mídia utilizam componentes nativos do Android e comunicação HTTP/JSON oficial.
 
 ---
 
-## 1. Arquitetura Híbrida
+## 1. Arquitetura 100% Nativa em Camadas
 
-- **Camada A — Interface Nativa Android TV (`navigation/`, `settings/`, `comments/`, `search/`, `messaging/`, `profile/`, `ui/`):**
-  - Menu lateral recolhível (`TvNavigationDrawerOverlay`) que desaparece automaticamente durante a reprodução.
-  - Mapeamento completo de controle remoto (`TvRemoteKeyHandler`): `Cima` (vídeo anterior), `Baixo` (próximo vídeo), `OK` (pausa/play), `Segurar OK` (menu contextual), `Esquerda` (menu), `Direita` (ações do vídeo), `Voltar` (fecha painel / retorna / confirma saída) e **Ponteiro Virtual D-pad** como último recurso para elementos web não focáveis.
-- **Camada B — Integração Oficial TikTok (`auth/` + `auth-backend/`):**
-  - **Login Kit QR Code Authorization v2:** `POST /v2/oauth/get_qrcode/`, `POST /v2/oauth/check_qrcode/`, troca e rotação automática de `refresh_token` (`POST /v2/oauth/token/`) e revogação (`POST /v2/oauth/revoke/`) com `client_secret` mantido exclusivamente no `auth-backend/`.
-  - **Display API v2:** `GET /v2/user/info/` e `POST /v2/video/list/` para exibir dados reais de perfil e vídeos públicos autorizados.
-- **Camada C — Compatibilidade Web Segura (`web/`):**
-  - **Instância única de `WebView`** (evita múltiplas WebViews simultâneas para proteger aparelhos de 1 GB de RAM).
-  - Lista de domínios HTTPS permitidos (`TikTokWebDomainPolicy`), bloqueio de `http://` e domínios não confiáveis, proteção TLS estrita e recuperação automática contra `onRenderProcessGone`.
-  - Ponte segura (`TikTokWebBridge`) para metadados reais e execução de ações na sessão web do usuário (curtir, comentar, republicar, salvar, seguir, pausa/play, silenciar).
-- **Camada D — Gerenciamento de Sessões (`SecureTokenStore` & `TikTokWebSessionManager`):**
-  - Separação explícita entre tokens OAuth da API (criptografados com **Android Keystore AES-256-GCM** + DataStore) e cookies da sessão web (`CookieManager` persistido via `flush()`).
+- **Camada de UI Nativa para TV (`feed/`, `navigation/`, `settings/`, `comments/`, `search/`, `messaging/`, `profile/`, `live/`, `sharing/`, `ui/`):**
+  - Menu lateral recolhível (`TvNavigationDrawerOverlay`) e foco espacial explícito com `FocusRequester` e `focusProperties`.
+  - Navegação completa por D-pad (`FeedDpadFocusHost` via `Modifier.onKeyEvent`): `Cima`/`Baixo` (trocar item), `OK` curto (pausa/play), `Segurar OK` ou `Menu` (opções do vídeo), `Esquerda` (gaveta de navegação), `Direita` (ações do vídeo), `Voltar` (fecha painel / retorna ao Início / confirma saída). Sem necessidade de mouse ou ponteiro virtual.
+- **Camada de Integração Oficial TikTok (`auth/`, `api/`, `auth-backend/`):**
+  - **Login Kit QR Code Authorization v2:** `POST /v2/oauth/get_qrcode/`, `POST /v2/oauth/check_qrcode/`, troca/rotação automática de `refresh_token` (`POST /v2/oauth/token/`) e revogação (`POST /v2/oauth/revoke/`) mantendo o `client_secret` exclusivamente no `auth-backend/`.
+  - **Display API v2:** `GET /v2/user/info/`, `POST /v2/video/list/` e `POST /v2/video/query/` para dados reais de perfil, métricas e vídeos publicados da conta autorizada.
+  - **Content Posting API v2:** `POST /v2/post/publish/creator_info/query/`, `POST /v2/post/publish/video/init/`, `POST /v2/post/publish/inbox/video/init/`, upload em chunks via HTTP `PUT` e verificação de status (`POST /v2/post/publish/status/fetch/`).
+- **Camada de Reprodução Nativa (`player/`):**
+  - `Media3 ExoPlayer` (`NativeMedia3PlayerSurface`) integrado a `MediaSession` e cache LRU delimitado (`VideoCacheManager` / `SimpleCache`).
+  - Seleção de modo de decodificação MediaCodec (`Automático`, `Hardware padrão`, `Baixa latência`).
+  - Validação estrita em `MediaSourceValidator`: apenas URIs locais (`content://`, `file://`) ou streams diretos verificados (`.mp4`, `.m3u8`, `.mpd`) entram no `ExoPlayer`; links HTML de incorporação da API (`embed_link` / `share_url`) nunca são forçados em players WebView e oferecem QR Code para abrir no celular.
+- **Camada de Persistência Segura e Desempenho (`data/`, `auth/SecureTokenStore.kt`, `settings/`, `performance/`):**
+  - Tokens OAuth criptografados via **Android Keystore AES-256-GCM** + DataStore.
+  - Cache estruturado offline de perfil e vídeos em **Room Database (`AppCacheDatabase`)**.
+  - `DeviceCapabilityDetector` analisa RAM total, `isLowRamDevice`, resolução/DPI, codecs de hardware MediaCodec (`H.264`, `H.265/HEVC`, `VP9`, `AV1`) e aplica automaticamente o perfil recomendado (`Econômico`, `Equilibrado` ou `Qualidade`).
 
 ---
 
 ## 2. Configuração de Credenciais Oficiais do TikTok
 
 1. Crie um app no **TikTok for Developers** (`https://developers.tiktok.com/`) e habilite:
-   - **Login Kit** (incluindo QR Code Authorization v2)
-   - **Display API** (escopos: `user.info.basic`, `user.info.profile`, `user.info.stats`, `video.list`)
-2. Configure o backend seguro (`auth-backend/`):
+   - **Login Kit** (QR Code Authorization v2)
+   - **Display API** (`user.info.basic`, `user.info.profile`, `user.info.stats`, `video.list`)
+   - **Content Posting API** (`video.upload`, `video.publish`)
+2. Configure o backend OAuth (`auth-backend/`):
    ```bash
    cd auth-backend
    cp .env.example .env
@@ -36,50 +40,46 @@ Cliente independente de televisão desenvolvido em **Kotlin + Jetpack Compose fo
    npm install
    npm start
    ```
-3. No painel **Secrets** do AI Studio (ou `.env` local em builds privados), configure:
+3. No painel **Secrets** do AI Studio (ou `.env` local em builds privados), defina:
    - `TIKTOK_CLIENT_KEY` (chave pública)
    - `TIKTOK_AUTH_BACKEND_URL` (URL HTTPS do seu `auth-backend`)
-   - **Nunca** coloque `TIKTOK_CLIENT_SECRET` no APK Android.
-
-> **Nota prática:** Mesmo antes de configurar o `auth-backend` para Login Kit v2, as abas **"Entrar com TikTok"** e **"Entrar usando o celular (Web QR)"** funcionam diretamente com a sessão web oficial do TikTok (`https://www.tiktok.com/login`).
+   - **Nunca** inclua `TIKTOK_CLIENT_SECRET` no APK Android.
 
 ---
 
-## 3. Compilação dos APKs (Universal, ARM32 e ARM64)
+## 3. Compilação dos APKs e Testes Locais
 
-O projeto mantém `abiFilters("armeabi-v7a", "arm64-v8a")` para gerar APK universal compacto para Android TV e Fire TV Stick.
+O projeto configura `abiFilters("armeabi-v7a", "arm64-v8a")` para suportar Fire TV Stick 32-bit e Android TV 64-bit em um único APK compacto:
 
 ```bash
-# APK Universal de Desenvolvimento (armeabi-v7a + arm64-v8a)
+# Compilar APK Debug Universal (armeabi-v7a + arm64-v8a)
 gradle :app:assembleDebug
 
-# APK Universal de Release (requer variáveis KEYSTORE_PATH, STORE_PASSWORD, KEY_PASSWORD)
+# Compilar APK Release Universal (requer KEYSTORE_PATH, STORE_PASSWORD e KEY_PASSWORD)
 gradle :app:assembleRelease
 
-# Executar testes automatizados (Robolectric + JUnit)
+# Executar testes Android (Robolectric + Compose UI Test + JUnit4)
 gradle :app:testDebugUnitTest
-```
 
-Para gerar APKs específicos por ABI em builds dedicados (ex.: Fire TV Stick Lite 32-bit vs 4K Max 64-bit), configure `-Pandroid.injected.build.abi=armeabi-v7a` ou `arm64-v8a`.
+# Executar testes do servidor backend OAuth
+node --test auth-backend/server.test.js
+```
 
 ---
 
 ## 4. Geração Automática de APK via GitHub Actions
 
-O workflow **`.github/workflows/build-apk.yml`** executa os testes (`gradle :app:testDebugUnitTest`) e gera o APK universal (`armeabi-v7a` + `arm64-v8a`) diretamente no GitHub:
+O workflow **`.github/workflows/build-apk.yml`** executa os testes (`gradle :app:testDebugUnitTest`) e gera o APK universal diretamente no GitHub:
 
-1. Envie o projeto para o seu repositório no GitHub (branch `main` ou `master`), ou abra a aba **Actions → Build TikTok TV APK → Run workflow**.
-2. Ao finalizar a execução, baixe o APK em **Artifacts** (`tiktok-tv-universal-debug-apk`).
+1. Envie o projeto para `main` ou `master`, ou acione **Actions → Build & Test Android TV APK → Run workflow**.
+2. Baixe o APK universal em **Artifacts** (`tiktok-tv-universal-debug-apk`).
 3. Para gerar **Releases públicas automáticas** com o APK anexado, envie uma tag de versão (ex.: `git tag v1.0.0 && git push origin v1.0.0`).
-4. *(Opcional)* Para gerar também o **APK Release assinado** e embutir suas chaves públicas no CI, configure em **Settings → Secrets and variables → Actions**:
-   - `ANDROID_KEYSTORE_BASE64`: arquivo `.jks` codificado em Base64 (`base64 -w 0 my-upload-key.jks`), com alias `upload`.
-   - `STORE_PASSWORD` e `KEY_PASSWORD`: senhas do keystore.
-   - `TIKTOK_CLIENT_KEY` e `TIKTOK_AUTH_BACKEND_URL`: caso utilize o Login Kit v2 em produção.
+4. *(Opcional)* Para assinatura Release e credenciais no CI, configure em **Settings → Secrets and variables → Actions**: `ANDROID_KEYSTORE_BASE64`, `STORE_PASSWORD`, `KEY_PASSWORD`, `TIKTOK_CLIENT_KEY` e `TIKTOK_AUTH_BACKEND_URL`.
 
 ---
 
-## 5. Instalação Manual (Sideload) em Fire TV Stick e Android TV
+## 5. Instalação na TV (Sideload)
 
-1. Ative **Opções de desenvolvedor / Apps de fontes desconhecidas** na TV ou Fire TV Stick.
-2. Envie o APK via `adb install -r app-debug.apk` ou aplicativo Downloader / gerenciador de arquivos na TV.
-3. O aplicativo aparecerá no launcher da TV com ícone adaptativo e banner (`320x180`).
+1. Habilite **Opções de desenvolvedor / Apps de fontes desconhecidas** na TV ou Fire TV Stick.
+2. Instale via `adb install -r app/build/outputs/apk/debug/app-debug.apk` ou gerenciador de arquivos na TV.
+3. O aplicativo aparecerá no launcher Android TV / Fire TV com ícone adaptativo e banner `320x180`.

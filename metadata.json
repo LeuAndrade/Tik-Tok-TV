@@ -1,6 +1,6 @@
 {
-  "name": "TikTok TV",
-  "description": "Cliente de televisão para Android TV, Google TV e Amazon Fire TV Stick integrado ao TikTok oficial com navegação por controle remoto, autenticação por QR Code e otimização para 1 GB de RAM.",
+  "name": "TikTok Native TV",
+  "description": "Cliente 100% nativo em Kotlin e Jetpack Compose for TV para Android TV, Google TV e Amazon Fire TV Stick com Media3, QR Code Login Kit v2, Display API v2 e Content Posting API.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

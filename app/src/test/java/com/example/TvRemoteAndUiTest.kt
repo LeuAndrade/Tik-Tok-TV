@@ -21,23 +21,27 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.pressKey
-import com.example.auth.CombinedAuthState
-import com.example.auth.WebSessionStatus
+import com.example.auth.LoginScreen
+import com.example.auth.NativeAuthState
+import com.example.auth.QrAuthorizationState
 import com.example.comments.CommentsSidePanel
+import com.example.feed.ActiveVideoItem
+import com.example.messaging.InboxScreen
 import com.example.navigation.FeedDpadCallbacks
 import com.example.navigation.FeedDpadFocusHost
+import com.example.navigation.SearchCategory
 import com.example.navigation.TvDestination
 import com.example.navigation.TvNavigationDrawerOverlay
 import com.example.navigation.handleFeedDpadKeyEvent
 import com.example.performance.DeviceCapabilities
 import com.example.performance.MemorySnapshot
 import com.example.performance.PerformanceProfile
+import com.example.player.DecoderMode
+import com.example.search.SearchScreen
 import com.example.settings.SettingsScreen
 import com.example.settings.TvSettingsState
+import com.example.sharing.ShareVideoOverlay
 import com.example.ui.theme.TikTokTvTheme
-import com.example.web.ActiveVideoMetadata
-import com.example.web.ShareVideoOverlay
-import com.example.web.WebCommentItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -55,14 +59,14 @@ class TvRemoteAndUiTest {
   val composeTestRule = createComposeRule()
 
   @Test
-  fun `navigation drawer renders all TV menu items and dispatches destination clicks`() {
+  fun `navigation drawer renders all native TV menu items and dispatches destination clicks`() {
     var selected: TvDestination? = null
     composeTestRule.setContent {
       TikTokTvTheme {
         TvNavigationDrawerOverlay(
           visible = true,
-          currentDestination = TvDestination.FOR_YOU,
-          authState = CombinedAuthState(webSessionStatus = WebSessionStatus.GUEST),
+          currentDestination = TvDestination.HOME,
+          authState = NativeAuthState(oauthConnected = false),
           onSelectDestination = { selected = it },
           onOpenLogin = {},
           onDismiss = {},
@@ -71,43 +75,69 @@ class TvRemoteAndUiTest {
     }
     composeTestRule.waitForIdle()
     composeTestRule.onNodeWithTag("tv_navigation_drawer").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("nav_home").assertIsDisplayed()
     composeTestRule.onNodeWithTag("nav_for_you").assertIsDisplayed()
     composeTestRule.onNodeWithTag("nav_following").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("nav_lives").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("nav_search").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("nav_inbox").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("nav_explore").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("nav_search").performScrollTo().assertIsDisplayed()
+    composeTestRule.onNodeWithTag("nav_lives").performScrollTo().assertIsDisplayed()
+    composeTestRule.onNodeWithTag("nav_inbox").performScrollTo().assertIsDisplayed()
     composeTestRule.onNodeWithTag("nav_favorites").performScrollTo().assertIsDisplayed()
     composeTestRule.onNodeWithTag("nav_profile").performScrollTo().assertIsDisplayed()
+    composeTestRule.onNodeWithTag("nav_publish").performScrollTo().assertIsDisplayed()
     composeTestRule.onNodeWithTag("nav_settings").performScrollTo().performClick()
     composeTestRule.waitForIdle()
     assertEquals(TvDestination.SETTINGS, selected)
   }
 
   @Test
-  fun `comments side panel displays extracted real comments and copy-share QR overlay works`() {
-    var submittedComment = ""
+  fun `login screen renders pure native QR Code option and honest SDK TV limitation tab`() {
+    var qrStarted = 0
+    composeTestRule.setContent {
+      TikTokTvTheme {
+        LoginScreen(
+          authState = NativeAuthState(),
+          qrState = QrAuthorizationState.Idle,
+          onStartOAuthQr = { qrStarted++ },
+          onCancelOAuthQr = {},
+          onExploreApp = {},
+        )
+      }
+    }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("login_screen").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("oauth_qr_panel").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("login_method_direct").performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("direct_sdk_limitation_panel").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("switch_to_qr_login_button").performClick()
+    composeTestRule.waitForIdle()
+    assertEquals(1, qrStarted)
+  }
+
+  @Test
+  fun `comments side panel displays real comment count and share QR trigger`() {
+    var shareOpened = false
     composeTestRule.setContent {
       TikTokTvTheme {
         CommentsSidePanel(
           visible = true,
-          metadata =
-            ActiveVideoMetadata(
+          video =
+            ActiveVideoItem(
+              id = "7080217258545735586",
               authorHandle = "@criador",
-              commentCountText = "12",
-              comments = listOf(WebCommentItem(author = "@fa", text = "Ótimo vídeo na TV!", likesText = "4")),
+              commentCount = 12L,
             ),
-          webSessionStatus = WebSessionStatus.AUTHENTICATED,
-          onSubmitComment = { submittedComment = it },
-          onOpenWebLogin = {},
+          onOpenShareQr = { shareOpened = true },
           onDismiss = {},
         )
       }
     }
     composeTestRule.waitForIdle()
     composeTestRule.onNodeWithTag("comments_side_panel").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("comment_input_field").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("comment_send_button").assertIsDisplayed()
-    assertEquals("", submittedComment)
+    composeTestRule.onNodeWithTag("comments_open_qr_button").performClick()
+    composeTestRule.waitForIdle()
+    assertTrue(shareOpened)
   }
 
   @Test
@@ -117,9 +147,9 @@ class TvRemoteAndUiTest {
       TikTokTvTheme {
         ShareVideoOverlay(
           visible = true,
+          videoTitle = "Vídeo Real",
           videoUrl = "https://www.tiktok.com/@creator/video/7080217258545735586",
           onCopyLink = { copiedUrl = it },
-          onShareInTikTokInbox = {},
           onDismiss = {},
         )
       }
@@ -132,8 +162,50 @@ class TvRemoteAndUiTest {
   }
 
   @Test
-  fun `settings screen shows Fire TV performance profiles and device info`() {
+  fun `inbox and search screens render pure native UI without webviews`() {
+    composeTestRule.setContent {
+      TikTokTvTheme {
+        InboxScreen(onOpenMenu = {}, onOpenHome = {})
+      }
+    }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("inbox_screen").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("inbox_notifications_tab").performClick()
+    composeTestRule.waitForIdle()
+  }
+
+  @Test
+  fun `search screen executes query callback cleanly`() {
+    var lastQuery = ""
+    composeTestRule.setContent {
+      TikTokTvTheme {
+        SearchScreen(
+          initialQuery = "7080217258545735586",
+          selectedCategory = SearchCategory.VIDEO_IDS,
+          searchHistory = emptyList(),
+          authState = NativeAuthState(),
+          results = emptyList(),
+          isSearching = false,
+          searchError = null,
+          onExecuteSearch = { q, _ -> lastQuery = q },
+          onSelectVideo = {},
+          onClearHistory = {},
+          onOpenMenu = {},
+          onOpenLogin = {},
+        )
+      }
+    }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("search_screen").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("search_submit_button").performClick()
+    composeTestRule.waitForIdle()
+    assertEquals("7080217258545735586", lastQuery)
+  }
+
+  @Test
+  fun `settings screen shows decoder modes, Fire TV profiles, and device info`() {
     var selectedProfile: PerformanceProfile? = null
+    var selectedDecoder: DecoderMode? = null
     val caps =
       DeviceCapabilities(
         totalRamMb = 1024L,
@@ -142,11 +214,13 @@ class TvRemoteAndUiTest {
         isFireOs = true,
         isAndroidTv = true,
         hasTouchscreen = false,
+        hasDpadNavigation = true,
+        screenResolutionLabel = "1920x1080",
+        screenDensityDpi = 320,
         osVersionLabel = "Fire OS / Android 11 (API 30)",
         deviceModelLabel = "Amazon AFTSS",
         primaryAbi = "armeabi-v7a",
         supportedAbis = listOf("armeabi-v7a"),
-        webViewVersion = "126.0",
         hardwareDecoders = emptyList(),
         recommendedProfile = PerformanceProfile.ECONOMIC,
       )
@@ -155,16 +229,18 @@ class TvRemoteAndUiTest {
       TikTokTvTheme {
         SettingsScreen(
           settings = TvSettingsState(performanceProfile = PerformanceProfile.ECONOMIC),
-          authState = CombinedAuthState(),
+          authState = NativeAuthState(),
           capabilities = caps,
           memorySnapshot = MemorySnapshot(1024L, 412L, 48L, 128L, false),
+          mediaCacheUsageMb = "0.0 MB",
           diagnostics = emptyList(),
           onOpenMenu = {},
           onUpdatePlayback = { _, _, _, _, _ -> },
+          onSelectDecoderMode = { selectedDecoder = it },
           onSelectProfile = { selectedProfile = it },
           onUpdateCacheLimit = {},
           onClearCache = {},
-          onUpdateNavigation = { _, _, _, _ -> },
+          onUpdateNavigation = { _, _, _ -> },
           onOpenLogin = {},
           onLogoutAndWipe = {},
         )
@@ -172,8 +248,10 @@ class TvRemoteAndUiTest {
     }
     composeTestRule.waitForIdle()
     composeTestRule.onNodeWithTag("settings_screen").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("setting_decoder_low_latency").performScrollTo().performClick()
     composeTestRule.onNodeWithTag("setting_profile_balanced").performScrollTo().performClick()
     composeTestRule.waitForIdle()
+    assertEquals(DecoderMode.LOW_LATENCY, selectedDecoder)
     assertEquals(PerformanceProfile.BALANCED, selectedProfile)
   }
 
@@ -220,10 +298,6 @@ class TvRemoteAndUiTest {
         FeedDpadFocusHost(
           focusRequester = feedFocusRequester,
           isOverlayOpen = false,
-          virtualPointerActive = false,
-          onMoveVirtualPointer = { _, _ -> },
-          onClickVirtualPointer = {},
-          onDisableVirtualPointer = {},
           callbacks = callbacks,
         ) {
           Box(modifier = Modifier.fillMaxSize())
@@ -280,10 +354,6 @@ class TvRemoteAndUiTest {
           FeedDpadFocusHost(
             focusRequester = feedFocusRequester,
             isOverlayOpen = drawerOpen,
-            virtualPointerActive = false,
-            onMoveVirtualPointer = { _, _ -> },
-            onClickVirtualPointer = {},
-            onDisableVirtualPointer = {},
             callbacks = callbacks,
           ) {
             Box(modifier = Modifier.fillMaxSize())
@@ -291,8 +361,8 @@ class TvRemoteAndUiTest {
 
           TvNavigationDrawerOverlay(
             visible = drawerOpen,
-            currentDestination = TvDestination.FOR_YOU,
-            authState = CombinedAuthState(),
+            currentDestination = TvDestination.HOME,
+            authState = NativeAuthState(),
             onSelectDestination = { drawerOpen = false },
             onOpenLogin = {},
             onDismiss = { drawerOpen = false },
@@ -309,78 +379,13 @@ class TvRemoteAndUiTest {
     composeTestRule.waitForIdle()
 
     composeTestRule.onNodeWithTag("tv_navigation_drawer").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("nav_for_you").assertIsFocused()
+    composeTestRule.onNodeWithTag("nav_home").assertIsFocused()
     feedHost.assertIsNotFocused()
 
     composeTestRule.onNodeWithTag("nav_close_button").performScrollTo().performClick()
     composeTestRule.waitForIdle()
 
     feedHost.assertIsFocused()
-  }
-
-  @OptIn(ExperimentalTestApi::class)
-  @Test
-  fun `virtual pointer mode intercepts dpad keys in onPreviewKeyEvent without stepping feed`() {
-    var movedX = 0f
-    var movedY = 0f
-    var clicked = 0
-    var disabled = 0
-    var feedStepped = 0
-
-    val callbacks =
-      object : FeedDpadCallbacks {
-        override fun onPreviousVideo() {
-          feedStepped++
-        }
-
-        override fun onNextVideo() {
-          feedStepped++
-        }
-
-        override fun onTogglePlayPause() {
-          feedStepped++
-        }
-
-        override fun onOpenNavigationDrawer() {}
-        override fun onOpenVideoActions() {}
-        override fun onOpenContextMenu() {}
-      }
-
-    composeTestRule.setContent {
-      TikTokTvTheme {
-        val feedFocusRequester = remember { FocusRequester() }
-        FeedDpadFocusHost(
-          focusRequester = feedFocusRequester,
-          isOverlayOpen = false,
-          virtualPointerActive = true,
-          onMoveVirtualPointer = { dx, dy ->
-            movedX += dx
-            movedY += dy
-          },
-          onClickVirtualPointer = { clicked++ },
-          onDisableVirtualPointer = { disabled++ },
-          callbacks = callbacks,
-        ) {
-          Box(modifier = Modifier.fillMaxSize())
-        }
-      }
-    }
-
-    composeTestRule.waitForIdle()
-    val host = composeTestRule.onNodeWithTag("feed_focus_host")
-    host.performKeyInput {
-      pressKey(Key.DirectionRight)
-      pressKey(Key.DirectionDown)
-      pressKey(Key.DirectionCenter)
-      pressKey(Key.Escape)
-    }
-    composeTestRule.waitForIdle()
-
-    assertTrue(movedX > 0f)
-    assertTrue(movedY > 0f)
-    assertEquals(1, clicked)
-    assertEquals(1, disabled)
-    assertEquals(0, feedStepped)
   }
 
   @Test

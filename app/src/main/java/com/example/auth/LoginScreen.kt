@@ -7,11 +7,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,7 +21,9 @@ import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,7 +40,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.navigation.LoginMethodTab
-import com.example.performance.PerformanceProfile
 import com.example.ui.components.TvFocusableButton
 import com.example.ui.components.TvFocusableTile
 import com.example.ui.components.TvInfoBanner
@@ -53,26 +52,16 @@ import com.example.ui.theme.TvSurface
 import com.example.ui.theme.TvSurfaceElevated
 import com.example.ui.theme.TvTextPrimary
 import com.example.ui.theme.TvTextSecondary
-import com.example.web.TikTokWebController
-import com.example.web.TikTokWebViewSurface
 
 @Composable
 fun LoginScreen(
-  authState: CombinedAuthState,
+  authState: NativeAuthState,
   qrState: QrAuthorizationState,
-  webController: TikTokWebController,
-  performanceProfile: PerformanceProfile,
   onStartOAuthQr: () -> Unit,
   onCancelOAuthQr: () -> Unit,
-  onLoadWebLogin: () -> Unit,
-  onLoadWebQrLogin: () -> Unit,
-  onExploreFeed: () -> Unit,
-  onToggleVirtualPointer: () -> Unit,
-  virtualPointerActive: Boolean,
-  pointerX: Float,
-  pointerY: Float,
+  onExploreApp: () -> Unit,
 ) {
-  var selectedTab by remember { mutableStateOf(LoginMethodTab.TIKTOK_DIRECT) }
+  var selectedTab by remember { mutableStateOf(LoginMethodTab.QR_CODE) }
 
   Row(
     horizontalArrangement = Arrangement.spacedBy(24.dp),
@@ -83,7 +72,7 @@ fun LoginScreen(
         .padding(28.dp)
         .testTag("login_screen"),
   ) {
-    // Left column: TV authentication choices & clear OAuth vs Web session explanation
+    // Left column: Native TV authentication methods
     Column(
       verticalArrangement = Arrangement.spacedBy(12.dp),
       modifier =
@@ -93,85 +82,61 @@ fun LoginScreen(
           .verticalScroll(rememberScrollState()),
     ) {
       Text(
-        text = "Conectar conta TikTok",
+        text = "Entrar no TikTok Native TV",
         color = TvTextPrimary,
         style = MaterialTheme.typography.displaySmall,
       )
       Text(
-        text = "Escolha o método oficial de autenticação para TV ou Fire TV Stick.",
+        text = "Autenticação 100% nativa sem navegador embutido, WebView ou Custom Tabs.",
         color = TvTextSecondary,
         style = MaterialTheme.typography.bodyMedium,
       )
 
       TvFocusableTile(
-        title = "Entrar com TikTok",
-        subtitle = "Formulário oficial do TikTok (e-mail, telefone, usuário, provedores externos e 2FA).",
-        icon = Icons.Default.Login,
-        selected = selectedTab == LoginMethodTab.TIKTOK_DIRECT,
-        onClick = {
-          selectedTab = LoginMethodTab.TIKTOK_DIRECT
-          onLoadWebLogin()
-        },
-        testTag = "login_method_direct",
-      )
-
-      TvFocusableTile(
-        title = "Entrar usando o celular (Web QR)",
-        subtitle = "Escaneie o QR oficial da sessão web para feed Para Você, curtidas, comentários e DMs.",
+        title = "Entrar usando QR Code",
+        subtitle = "Login Kit QR v2 oficial: escaneie com o aplicativo TikTok do celular e autorize com segurança.",
         icon = Icons.Default.QrCode2,
-        selected = selectedTab == LoginMethodTab.QR_WEB,
+        selected = selectedTab == LoginMethodTab.QR_CODE,
         onClick = {
-          selectedTab = LoginMethodTab.QR_WEB
-          onLoadWebQrLogin()
-        },
-        testTag = "login_method_qr_web",
-      )
-
-      TvFocusableTile(
-        title = "QR Code Login Kit v2 (API Oficial)",
-        subtitle = "Autorização OAuth 2.0 via POST /v2/oauth/get_qrcode/ para perfil e Display API.",
-        icon = Icons.Default.QrCode2,
-        selected = selectedTab == LoginMethodTab.QR_OAUTH_API,
-        onClick = {
-          selectedTab = LoginMethodTab.QR_OAUTH_API
+          selectedTab = LoginMethodTab.QR_CODE
           onStartOAuthQr()
         },
         testTag = "login_method_qr_oauth",
       )
 
+      TvFocusableTile(
+        title = "Entrar com TikTok (SDK móvel)",
+        subtitle = "Verifica compatibilidade do AuthApi móvel no Android TV / Fire TV Stick.",
+        icon = Icons.Default.Login,
+        selected = selectedTab == LoginMethodTab.TIKTOK_DIRECT,
+        onClick = { selectedTab = LoginMethodTab.TIKTOK_DIRECT },
+        testTag = "login_method_direct",
+      )
+
       TvInfoBanner(
         message =
-          "Transparência de sessão: OAuth Login Kit autoriza apenas os escopos da API (perfil e seus vídeos). Para curtir, comentar, republicar e usar o chat no feed, é necessária a sessão web oficial do TikTok à direita.",
+          "Escopos OAuth solicitados: user.info.basic, user.info.profile, user.info.stats, video.list, video.upload e video.publish.",
         accentColor = TikTokCyan,
       )
 
-      if (authState.webSessionStatus == WebSessionStatus.AUTHENTICATED) {
+      if (authState.oauthConnected) {
         TvInfoBanner(
-          message = "Sessão Web TikTok ativa e salva neste aparelho!",
+          message = "Conta conectada: ${authState.userProfile?.displayName ?: "Usuário TikTok"}",
           accentColor = TvSuccess,
         )
       }
 
-      if (selectedTab != LoginMethodTab.QR_OAUTH_API) {
-        TvFocusableButton(
-          text = if (virtualPointerActive) "Desativar Ponteiro Virtual" else "Ativar Ponteiro Virtual (para captchas/2FA)",
-          onClick = onToggleVirtualPointer,
-          modifier = Modifier.fillMaxWidth(),
-          testTag = "login_toggle_pointer_button",
-        )
-      }
-
       TvFocusableButton(
-        text = "Ir para o feed da TV",
+        text = "Explorar aplicativo na TV",
         icon = Icons.Default.Tv,
         isPrimary = true,
-        onClick = onExploreFeed,
+        onClick = onExploreApp,
         modifier = Modifier.fillMaxWidth(),
         testTag = "login_continue_feed_button",
       )
     }
 
-    // Right column: Official TikTok Web Login/QR OR Login Kit v2 QR Code display
+    // Right column: Native OAuth QR Code v2 OR Direct SDK capability explanation
     Box(
       contentAlignment = Alignment.Center,
       modifier =
@@ -182,32 +147,76 @@ fun LoginScreen(
           .background(TvSurface)
           .border(1.5.dp, TikTokCyan.copy(alpha = 0.35f), RoundedCornerShape(18.dp)),
     ) {
-      if (selectedTab == LoginMethodTab.QR_OAUTH_API) {
+      if (selectedTab == LoginMethodTab.QR_CODE) {
         OAuthQrCodePanel(
           qrState = qrState,
           onRetry = onStartOAuthQr,
           onCancel = onCancelOAuthQr,
         )
       } else {
-        val targetUrl =
-          if (selectedTab == LoginMethodTab.QR_WEB) {
-            "https://www.tiktok.com/login/qrcode"
-          } else {
-            "https://www.tiktok.com/login"
-          }
-        TikTokWebViewSurface(
-          controller = webController,
-          initialUrl = targetUrl,
-          performanceProfile = performanceProfile,
-          autoplay = true,
-          virtualPointerActive = virtualPointerActive,
-          pointerNormalizedX = pointerX,
-          pointerNormalizedY = pointerY,
-          onFullscreenViewChange = {},
-          modifier = Modifier.fillMaxSize(),
+        DirectSdkUnavailablePanel(
+          onSwitchToQr = {
+            selectedTab = LoginMethodTab.QR_CODE
+            onStartOAuthQr()
+          },
         )
       }
     }
+  }
+}
+
+@Composable
+private fun DirectSdkUnavailablePanel(
+  onSwitchToQr: () -> Unit,
+) {
+  Column(
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.spacedBy(16.dp),
+    modifier = Modifier.padding(36.dp).testTag("direct_sdk_limitation_panel"),
+  ) {
+    Box(
+      contentAlignment = Alignment.Center,
+      modifier =
+        Modifier
+          .size(72.dp)
+          .clip(RoundedCornerShape(20.dp))
+          .background(TvSurfaceElevated)
+          .border(1.dp, TikTokPink.copy(alpha = 0.5f), RoundedCornerShape(20.dp)),
+    ) {
+      Icon(
+        imageVector = Icons.Outlined.Lock,
+        contentDescription = null,
+        tint = TikTokPink,
+        modifier = Modifier.size(36.dp),
+      )
+    }
+
+    Text(
+      text = "Entrar com TikTok (SDK Móvel) indisponível na TV",
+      color = TvTextPrimary,
+      style = MaterialTheme.typography.headlineMedium,
+    )
+
+    Text(
+      text =
+        "O SDK oficial AuthApi do TikTok para Android depende do aplicativo móvel do TikTok instalado no dispositivo ou de Chrome Custom Tabs (navegador embutido), que são proibidos neste cliente nativo e incompatíveis com televisores sem tela sensível ao toque.",
+      color = TvTextSecondary,
+      style = MaterialTheme.typography.bodyLarge,
+    )
+
+    TvInfoBanner(
+      message =
+        "Solução oficial recomendada para Android TV, Google TV e Fire TV Stick: utilize 'Entrar usando QR Code' (Login Kit QR v2) para confirmar diretamente no seu celular.",
+      accentColor = TikTokCyan,
+    )
+
+    TvFocusableButton(
+      text = "Usar Entrar usando QR Code agora",
+      icon = Icons.Default.QrCode2,
+      isPrimary = true,
+      onClick = onSwitchToQr,
+      testTag = "switch_to_qr_login_button",
+    )
   }
 }
 
@@ -231,7 +240,7 @@ private fun OAuthQrCodePanel(
     when (qrState) {
       QrAuthorizationState.Idle -> {
         Text(
-          text = "Solicite um código QR seguro para aprovar o acesso no TikTok do celular.",
+          text = "Gere um código QR oficial para aprovar esta TV diretamente no aplicativo TikTok do celular.",
           color = TvTextSecondary,
           style = MaterialTheme.typography.bodyLarge,
         )
@@ -246,7 +255,7 @@ private fun OAuthQrCodePanel(
       QrAuthorizationState.Requesting -> {
         CircularProgressIndicator(color = TikTokCyan)
         Text(
-          text = "Gerando client_ticket e solicitando QR Code ao servidor...",
+          text = "Gerando client_ticket e solicitando QR Code ao servidor OAuth...",
           color = TvTextSecondary,
         )
       }
@@ -306,7 +315,7 @@ private fun OAuthQrCodePanel(
           style = MaterialTheme.typography.titleLarge,
         )
         Text(
-          text = "Tokens OAuth salvos com criptografia Android Keystore.",
+          text = "Tokens salvos com criptografia Android Keystore. Redirecionando para o Início...",
           color = TvTextSecondary,
           style = MaterialTheme.typography.bodyMedium,
         )
@@ -346,7 +355,8 @@ private fun OAuthQrCodePanel(
         )
         if (qrState.isConfigurationMissing) {
           Text(
-            text = "Para usar Login Kit v2, hospede a pasta auth-backend/ e configure TIKTOK_AUTH_BACKEND_URL no painel Secrets. Enquanto isso, as abas 'Entrar com TikTok' e 'QR Code da TV (Web)' funcionam diretamente com sua conta real!",
+            text =
+              "Hospede o serviço auth-backend/ e defina TIKTOK_AUTH_BACKEND_URL no painel Secrets para emitir tokens oficiais do TikTok Login Kit v2.",
             color = TvTextSecondary,
             style = MaterialTheme.typography.bodyMedium,
           )
