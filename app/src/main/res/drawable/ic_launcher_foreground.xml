@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer TV screen frame silhouette in cyan offset -->
+    <path
+        android:fillColor="#25F4EE"
+        android:pathData="M24,31 C24,27.686 26.686,25 30,25 L74,25 C77.314,25 80,27.686 80,31 L80,69 C80,72.314 77.314,75 74,75 L30,75 C26.686,75 24,72.314 24,69 Z" />
+    <!-- TV screen frame silhouette in pink offset -->
+    <path
+        android:fillColor="#FE2C55"
+        android:pathData="M28,33 C28,29.686 30.686,27 34,27 L78,27 C81.314,27 84,29.686 84,33 L84,71 C84,74.314 81.314,77 78,77 L34,77 C30.686,77 28,74.314 28,71 Z" />
+    <!-- Inner dark TV bezel -->
+    <path
+        android:fillColor="#111116"
+        android:pathData="M26,32 C26,29.239 28.239,27 31,27 L77,27 C79.761,27 82,29.239 82,32 L82,70 C82,72.761 79.761,75 77,75 L31,75 C28.239,75 26,72.761 26,70 Z" />
+    <!-- TV stand base -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,80 L66,80 C67.105,80 68,80.895 68,82 C68,83.105 67.105,84 66,84 L42,84 C40.895,84 40,83.105 40,82 C40,80.895 40.895,80 42,80 Z" />
+    <!-- Center play + note emblem (cyan shadow) -->
+    <path
+        android:fillColor="#25F4EE"
+        android:pathData="M45,40 L63,50 L45,60 Z" />
+    <!-- Center play + note emblem (pink shadow) -->
+    <path
+        android:fillColor="#FE2C55"
+        android:pathData="M48,42 L66,52 L48,62 Z" />
+    <!-- Center crisp white play triangle -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M46.5,41 L64.5,51 L46.5,61 Z" />
+</vector>

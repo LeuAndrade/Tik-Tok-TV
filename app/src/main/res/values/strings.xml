@@ -1,0 +1,18 @@
+<resources>
+    <string name="app_name">TikTok TV</string>
+    <string name="app_subtitle">Cliente independente para Android TV &amp; Fire TV</string>
+    <string name="cd_app_logo">Logotipo do TikTok TV</string>
+    <string name="cd_qr_code">Código QR para escanear com o celular</string>
+    <string name="nav_home_for_you">Para Você</string>
+    <string name="nav_home_following">Seguindo</string>
+    <string name="nav_lives">Lives</string>
+    <string name="nav_search">Pesquisar</string>
+    <string name="nav_inbox">Caixa de entrada</string>
+    <string name="nav_favorites">Favoritos</string>
+    <string name="nav_profile">Perfil</string>
+    <string name="nav_settings">Configurações</string>
+    <string name="action_login_tiktok">Entrar com TikTok</string>
+    <string name="action_login_qr">Entrar usando o celular</string>
+    <string name="action_continue_guest">Explorar feed público na TV</string>
+    <string name="error_no_network">Sem conexão com a internet. Verifique o Wi-Fi ou cabo de rede.</string>
+</resources>
